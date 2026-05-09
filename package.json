@@ -1,0 +1,25 @@
+{
+  "name": "era-digest-worker",
+  "version": "1.0.0",
+  "description": "Automated daily digest of Employment Relations Authority determinations",
+  "main": "src/index.ts",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "deploy:dry": "wrangler deploy --dry-run",
+    "db:create": "wrangler d1 create era-digest",
+    "db:migrate": "wrangler d1 migrations apply era-digest --remote",
+    "db:migrate:local": "wrangler d1 migrations apply era-digest --local",
+    "db:seed": "wrangler d1 execute era-digest --remote --file=migrations/0002_seed.sql",
+    "db:seed:local": "wrangler d1 execute era-digest --local --file=migrations/0002_seed.sql",
+    "secret:openrouter": "wrangler secret put OPENROUTER_API_KEY",
+    "secret:admin": "wrangler secret put ADMIN_SECRET",
+    "logs": "wrangler tail",
+    "type-check": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20241106.0",
+    "typescript": "^5.5.2",
+    "wrangler": "^3.80.0"
+  }
+}

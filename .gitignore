@@ -1,0 +1,50 @@
+# ─── Dependencies & Builds ───────────────────────────────────────────────
+node_modules/
+dist/
+dist-upload.js
+*.tsbuildinfo
+
+# ─── IDE & Editor ────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+.sublime-project
+.sublime-workspace
+
+# ─── Secrets & Credentials ──────────────────────────────────────────────
+# CRITICAL: Never commit these files!
+.env
+.env.local
+.env.*.local
+.wrangler/
+.wrangler-session/
+wrangler.env
+*.pem
+*.key
+*.crt
+
+# ─── Runtime & Temporary ────────────────────────────────────────────────
+.cache/
+.tmp/
+tmp/
+*.log
+*.pid
+*.seed
+*.pid.lock
+
+# ─── Test & Coverage ────────────────────────────────────────────────────
+coverage/
+*.lcov
+.nyc_output/
+test-results/
+
+# ─── OS Files ───────────────────────────────────────────────────────────
+Thumbs.db
+.AppleDouble
+.LSOverride
+
+# ─── Cloudflare ─────────────────────────────────────────────────────────
+.wrangler/tmp/

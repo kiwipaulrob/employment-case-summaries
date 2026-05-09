@@ -1,0 +1,72 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "era-digest-worker",
+  "main": "src/index.ts",
+  "compatibility_date": "2024-09-23",
+
+  // ── Cron triggers ────────────────────────────────────────────────────────────
+  // Two expressions to maintain consistent 8 am NZT delivery year-round.
+  //
+  // New Zealand time zones:
+  //   NZST (UTC+12): April–September  → 8 am = 20:00 UTC previous day
+  //   NZDT (UTC+13): October–March    → 8 am = 19:00 UTC previous day
+  //
+  // A D1 flag (last_email_sent_at) suppresses the second trigger on any day
+  // when an email has already been sent — ensuring exactly one email per day.
+  //
+  // To switch to change-detection mode (every 30 minutes), replace these with:
+  //   "*/30 * * * *"
+  // and set TRIGGER_MODE=change_detection in vars below.
+  "triggers": {
+    "crons": [
+      "0 20 * * *",
+      "0 19 * * *"
+    ]
+  },
+
+  // ── D1 database ───────────────────────────────────────────────────────────────
+  // Create with: wrangler d1 create era-digest
+  // Then replace REPLACE_WITH_D1_DATABASE_ID with the output ID.
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "era-digest",
+      "database_id": "0c0edb97-2257-4a72-9637-c98799984715",
+      "migrations_dir": "migrations"
+    }
+  ],
+
+  // ── Email Service binding ─────────────────────────────────────────────────────
+  // Requires whenroutinebiteshard.com to be onboarded in Cloudflare Email Sending.
+  // Dashboard → Email → Email Sending → Add domain → Follow DNS setup.
+  "send_email": [
+    {
+      "name": "EMAIL"
+    }
+  ],
+
+  // ── Service bindings ───────────────────────────────────────────────────────────
+  // Allows zero-latency calls to other Workers (e.g. pdf-parser-python).
+  "services": [
+    {
+      "binding": "PDF_PARSER",
+      "service": "pdf-parser-python",
+      "environment": "production"
+    }
+  ],
+
+  // ── Environment variables (non-secret) ────────────────────────────────────────
+  // Secrets (OPENROUTER_API_KEY, ADMIN_SECRET) are set via:
+  //   wrangler secret put OPENROUTER_API_KEY
+  //   wrangler secret put ADMIN_SECRET
+  "vars": {
+    "OPENROUTER_MODEL": "anthropic/claude-3.5-sonnet-20241022",
+    "USE_PDF_URL_PASSTHROUGH": "false",
+    "SOURCE_URL": "https://determinations.era.govt.nz/determinations/recent",
+    "ADMIN_EMAIL": "paul.robertson@heaneypartners.com",
+    "SENDING_ADDRESS": "digest@whenroutinebiteshard.com",
+    "TIMEZONE": "Pacific/Auckland",
+    "TRIGGER_MODE": "scheduled",
+    "SITE_URL": "https://whenroutinebiteshard.com"
+  }
+}
