@@ -115,7 +115,7 @@ See `.env.example` for all required variables:
 | Variable | Purpose | Example |
 |----------|---------|---------|
 | `OPENROUTER_API_KEY` | LLM API key (secret) | `sk-or-v1-...` |
-| `ADMIN_SECRET` | Admin authentication (secret) | `Banana1717` |
+| `ADMIN_SECRET` | Admin authentication (secret) | `YourStrongPasswordHere` |
 | `OPENROUTER_MODEL` | LLM model to use | `anthropic/claude-3.5-sonnet-20241022` |
 | `SENDING_ADDRESS` | Email sender address | `digest@yourdomain.com` |
 | `ADMIN_EMAIL` | Admin alert recipient | `admin@example.com` |
