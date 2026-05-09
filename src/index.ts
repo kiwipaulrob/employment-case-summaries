@@ -99,24 +99,62 @@ async function getAndClearEmailNotice(db: D1Database): Promise<string | null> {
  * Extract text from a PDF using the Python sidecar worker (pdf-parser-python).
  * This worker uses pypdf to handle CID fonts in Employment Court PDFs.
  * 
+ * Includes circuit breaker timeout (20s) to prevent cold-start hangs.
+ * Falls back to local FlateDecode extraction if sidecar times out or fails.
+ * 
  * @param pdfBytes — Raw PDF bytes from request body
  * @param env — Worker environment (includes PDF_PARSER binding)
  * @returns Extracted text string
  */
 async function extractTextWithPython(pdfBytes: ArrayBuffer, env: Env): Promise<string> {
-  const response = await env.PDF_PARSER.fetch('http://pdf-parser.local/', {
-    method: 'POST',
-    body: pdfBytes,
-    headers: { 'Content-Type': 'application/pdf' },
-  });
+  try {
+    // Circuit breaker: timeout after 20 seconds to prevent indefinite hangs
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 20000);
 
-  if (!response.ok) {
-    const errorData: any = await response.json();
-    throw new Error(`PDF Extraction Failed: ${errorData.error}`);
+    const response = await Promise.race([
+      env.PDF_PARSER.fetch('http://pdf-parser.local/', {
+        method: 'POST',
+        body: pdfBytes,
+        headers: { 'Content-Type': 'application/pdf' },
+      }),
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('Python sidecar timeout (20s)')), 20000)
+      ),
+    ]);
+
+    clearTimeout(timeout);
+
+    if (!response.ok) {
+      const errorData: any = await response.json();
+      throw new Error(`Python sidecar returned error: ${errorData.error}`);
+    }
+
+    const result: any = await response.json();
+    if (!result.text) {
+      console.warn('Python sidecar returned empty text, will attempt FlateDecode fallback');
+      throw new Error('Python sidecar returned no text');
+    }
+    console.log(`Python sidecar: extracted ${result.text.length} chars`);
+    return result.text;
+  } catch (err) {
+    const errMsg = err instanceof Error ? err.message : String(err);
+    console.warn(`Python sidecar failed: ${errMsg}. Attempting FlateDecode fallback...`);
+
+    // Fallback to local FlateDecode extraction (Strategy B)
+    try {
+      const fallbackText = await getPdfContentFromBytes(pdfBytes);
+      if (fallbackText.trim()) {
+        console.log(`FlateDecode fallback: extracted ${fallbackText.length} chars`);
+        return fallbackText;
+      }
+    } catch (fallbackErr) {
+      console.error(`FlateDecode fallback also failed: ${fallbackErr}`);
+    }
+
+    // If both fail, throw the original error
+    throw new Error(`PDF extraction failed: ${errMsg}`);
   }
-
-  const result: any = await response.json();
-  return result.text || '';
 }
 
 export default {
@@ -930,13 +968,31 @@ async function runDigest(env: Env, force = false, limit = 3): Promise<RunResult>
     if (subscribers.length === 0) {
       console.warn('ERA Digest: no active subscribers');
     } else {
-      const notice = await getAndClearEmailNotice(env.DB);
+      // Fetch notice BEFORE sending, but don't clear it yet
+      let notice: string | null = null;
+      try {
+        notice = await getConfig(env.DB, 'email_notice');
+      } catch (err) {
+        console.warn(`Failed to fetch email notice: ${err}`);
+      }
+
+      // Send emails
       const { sent, failed } = await sendDigestToAll(
         subscribers, processedCases, env.SENDING_ADDRESS,
         env.TIMEZONE, env.EMAIL, env.SITE_URL, notice
       );
       result.emailsSent = sent;
       if (failed > 0) result.failed += failed;
+
+      // Only clear notice AFTER successful sends
+      if (sent > 0 && notice) {
+        try {
+          await env.DB.prepare(`UPDATE config SET value = NULL, updated_at = datetime('now') WHERE key = 'email_notice'`).run();
+          console.log('Email notice cleared after successful send');
+        } catch (err) {
+          console.warn(`Failed to clear email notice: ${err}`);
+        }
+      }
     }
 
     // Step 8: Record
