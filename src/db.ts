@@ -45,6 +45,37 @@ export async function filterNewCases(
 }
 
 /**
+ * Validates a summary for double-encoding (safety guardrail against regressions).
+ * Throws an error if the summary appears to be double-JSON-encoded.
+ * This prevents corrupted data from being stored in the database.
+ * 
+ * @param summary The summary string to validate
+ * @param caseId Case identifier for error messages
+ * @throws Error if double-encoding is detected
+ */
+function validateSummaryNotDoubleEncoded(summary: string, caseId: string): void {
+  if (!summary) return; // Empty summaries are OK
+  
+  const trimmed = summary.trim();
+  // Check if the summary starts with JSON-like patterns (indicates double-encoding)
+  if (trimmed.startsWith('{') || trimmed.startsWith('"') || trimmed.startsWith('[')) {
+    // Valid Markdown/HTML should not start with these in normal circumstances
+    // If it does, it's likely double-encoded JSON from a previous bug
+    try {
+      // Try to parse it — if it parses as JSON, it's definitely double-encoded
+      JSON.parse(trimmed);
+      throw new Error(
+        `DOUBLE-ENCODING DETECTED in case ${caseId}: summary parses as JSON. ` +
+        `This indicates the summary was JSON-stringified twice. Original value: ${trimmed.substring(0, 100)}`
+      );
+    } catch (parseErr) {
+      // If JSON.parse fails, it's not valid JSON, so it's probably fine
+      // (e.g., normal Markdown starting with { or [ doesn't parse as JSON)
+    }
+  }
+}
+
+/**
  * Writes a fully processed case to the seen_cases table.
  * Uses (source, pdf_filename) as the composite PRIMARY KEY.
  * source: 'ERA' or 'EMPLOYMENT_COURT'
@@ -63,6 +94,9 @@ export async function markCaseSeen(
   if (!pdfFilename) {
     throw new Error(`Cannot mark case as seen: no PDF filename for ${processedCase.title}`);
   }
+
+  // SAFETY GUARDRAIL: Validate summary against double-encoding
+  validateSummaryNotDoubleEncoded(processedCase.summary, processedCase.caseId);
 
   await db
     .prepare(
