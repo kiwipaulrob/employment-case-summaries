@@ -60,7 +60,7 @@
   //   wrangler secret put OPENROUTER_API_KEY
   //   wrangler secret put ADMIN_SECRET
   "vars": {
-    "OPENROUTER_MODEL": "anthropic/claude-3.5-sonnet-20241022",
+    "OPENROUTER_MODEL": "anthropic/claude-sonnet-4.6",
     "USE_PDF_URL_PASSTHROUGH": "false",
     "SOURCE_URL": "https://determinations.era.govt.nz/determinations/recent",
     "ADMIN_EMAIL": "paul.robertson@heaneypartners.com",

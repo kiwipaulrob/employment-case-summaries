@@ -104,11 +104,18 @@ async function getAndClearEmailNotice(db: D1Database): Promise<string | null> {
  * @returns Extracted text string
  */
 async function extractTextWithPython(pdfBytes: ArrayBuffer, env: Env): Promise<string> {
-  const response = await env.PDF_PARSER.fetch('http://pdf-parser.local/', {
+  // 20-second circuit breaker to prevent infinite hangs
+  const timeoutPromise = new Promise<never>(
+    (_, reject) => setTimeout(() => reject(new Error('PDF extraction timeout (20s)')), 20000)
+  );
+
+  const fetchPromise = env.PDF_PARSER.fetch('http://pdf-parser.local/', {
     method: 'POST',
     body: pdfBytes,
     headers: { 'Content-Type': 'application/pdf' },
   });
+
+  const response = await Promise.race([fetchPromise, timeoutPromise]);
 
   if (!response.ok) {
     const errorData: any = await response.json();
