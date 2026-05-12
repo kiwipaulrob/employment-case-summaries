@@ -212,7 +212,7 @@ export async function summariseCase(
 
   for (let attempt = 1; attempt <= 2; attempt++) {
     try {
-      const summary = await callOpenRouter(request, apiKey);
+      let summary = await callOpenRouter(request, apiKey);
 
       if (summary.includes('SUMMARY_UNAVAILABLE')) {
         return {
@@ -222,6 +222,9 @@ export async function summariseCase(
           error: 'Model returned SUMMARY_UNAVAILABLE',
         };
       }
+
+      // Strip LLM preambles and artifacts
+      summary = stripLlmArtifacts(summary);
 
       return { caseId: caseData.caseId, summary, success: true };
     } catch (err) {
@@ -255,4 +258,33 @@ export async function summariseCase(
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Strips LLM preambles and artifacts from the summary.
+ * Examples of what gets removed:
+ *   - "I'll analyze this determination..."
+ *   - "Let me provide a structured summary..."
+ *   - "[FINAL DETERMINATION]" flags
+ *   - "---FORMAT START---" / "---FORMAT END---" markers
+ */
+function stripLlmArtifacts(text: string): string {
+  let cleaned = text;
+
+  // Remove common preambles
+  cleaned = cleaned.replace(/^['"']?I['']ll\s+(analyze|summarize)\s+.*?\.?\s*\n\n/is, '');
+  cleaned = cleaned.replace(/^['"']?Let\s+me\s+(provide|give)\s+.*?\.?\s*\n\n/is, '');
+  cleaned = cleaned.replace(/^['"']?Here['']s\s+.*?\.?\s*\n\n/is, '');
+
+  // Remove document type flags
+  cleaned = cleaned.replace(/^\[FINAL DETERMINATION\]\s*\n\n/im, '');
+  cleaned = cleaned.replace(/^\[INTERIM[^\]]*\]\s*\n\n/im, '');
+  cleaned = cleaned.replace(/^\[CONSENT ORDER\]\s*\n\n/im, '');
+  cleaned = cleaned.replace(/^\[COSTS ORDER\]\s*\n\n/im, '');
+
+  // Remove format markers
+  cleaned = cleaned.replace(/^---?FORMAT\s+START---?\s*\n*/im, '');
+  cleaned = cleaned.replace(/\n*---?FORMAT\s+END---?\s*$/im, '');
+
+  return cleaned.trim();
 }
