@@ -225,7 +225,7 @@ export async function summariseEmploymentCourtCase(
   const request: OpenRouterRequest = {
     model,
     messages: buildMessages(caseData, pdfContent, model),
-    max_tokens: 1500, // ≈900–1200 words for comprehensive appeal summaries with ERA context
+    max_tokens: 2500, // ≈1,800–2,000 words for complex appeal cases with multiple issues
   };
 
   for (let attempt = 1; attempt <= 2; attempt++) {
