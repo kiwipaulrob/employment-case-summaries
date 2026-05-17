@@ -32,7 +32,7 @@ import type { D1Database } from '@cloudflare/workers-types';
 import type { Env, ProcessedCase } from './types';
 import {
   filterNewCases, markCaseSeen, getActiveSubscribers, getAllSubscribers,
-  hasEmailBeenSentToday, recordEmailSent, recordRunAt, getRecentCases,
+  hasEmailBeenSentToday, recordEmailSent, recordRunAt, getRecentCases, getCaseStatistics,
   getConfig, addSubscriberPending, confirmSubscriber, unsubscribeByToken,
   deleteSubscriber, deleteStalePendingSubscribers, setProcessingLock, isProcessing,
 } from './db';
@@ -234,26 +234,23 @@ export default {
       if (session !== env.ADMIN_SECRET) {
         return htmlResponse(adminLoginPage());
       }
-      const [subscribers, lastRun, lastEmail, cases, isPausedConfig] = await Promise.all([
+      const [subscribers, lastRun, lastEmail, stats, isPausedConfig] = await Promise.all([
         getAllSubscribers(env.DB),
         getConfig(env.DB, 'last_run_at'),
         getConfig(env.DB, 'last_email_sent_at'),
-        getRecentCases(env.DB, 1000),
+        getCaseStatistics(env.DB),
         getConfig(env.DB, 'system_paused'),
       ]);
       const isPaused = isPausedConfig === '1';
-      const totalCases = cases.length;
-      const eraCases = cases.filter((c: any) => c.source === 'ERA').length;
-      const ecCases = cases.filter((c: any) => c.source === 'EMPLOYMENT_COURT').length;
       const dashboardHtml = getDashboardHtml({
         total_subscribers: subscribers.length,
         active_subscribers: subscribers.filter((s: any) => s.confirmed).length,
         subscribers: subscribers as any[],
         last_run_at: lastRun,
         is_paused: isPaused,
-        total_cases: totalCases,
-        era_cases: eraCases,
-        ec_cases: ecCases,
+        total_cases: stats.total,
+        era_cases: stats.era,
+        ec_cases: stats.ec,
       });
       return htmlResponse(dashboardHtml);
     }
@@ -939,7 +936,9 @@ async function runDigest(env: Env, force = false, limit = 3): Promise<RunResult>
           source: 'ERA',
         };
         processedCases.push(processedCase);
-        await markCaseSeen(env.DB, processedCase, 'ERA');
+        // NOTE: markCaseSeen is NOT called here. Cases are marked as seen only AFTER
+        // successful email dispatch (or if no subscribers exist). This ensures that
+        // if email dispatch fails, cases will be retried on the next run.
       } else {
         console.warn(`Skipping database commit for ${c.caseId} due to failure. Will retry next run.`);
       }
@@ -955,8 +954,17 @@ async function runDigest(env: Env, force = false, limit = 3): Promise<RunResult>
       );
       result.emailsSent = sent;
       if (failed > 0) result.failed += failed;
-    } else if (subscribers.length === 0) {
-      console.warn('ERA Digest: no active subscribers');
+      
+      // Only mark cases as seen after successful email dispatch
+      for (const pc of processedCases) {
+        await markCaseSeen(env.DB, pc, 'ERA');
+      }
+    } else if (subscribers.length === 0 && processedCases.length > 0) {
+      console.warn('ERA Digest: no active subscribers, but marking processed cases as seen for archive');
+      // Still mark cases as seen even if no subscribers (for archival purposes)
+      for (const pc of processedCases) {
+        await markCaseSeen(env.DB, pc, 'ERA');
+      }
     } else {
       console.log('ERA Digest: no successful cases processed, skipping email');
     }

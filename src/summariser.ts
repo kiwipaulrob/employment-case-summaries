@@ -165,38 +165,48 @@ async function callOpenRouter(
   request: OpenRouterRequest,
   apiKey: string
 ): Promise<string> {
-  const response = await fetch(OPENROUTER_BASE_URL, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${apiKey}`,
-      'HTTP-Referer': 'https://whenroutinebiteshard.com',
-      'X-Title': 'ERA Determinations Digest',
-    },
-    body: JSON.stringify(request),
-  });
+  // Create an AbortController with a 25-second timeout
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 25000);
 
-  const json = (await response.json()) as OpenRouterResponse;
+  try {
+    const response = await fetch(OPENROUTER_BASE_URL, {
+      method: 'POST',
+      signal: controller.signal,
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey}`,
+        'HTTP-Referer': 'https://whenroutinebiteshard.com',
+        'X-Title': 'ERA Determinations Digest',
+      },
+      body: JSON.stringify(request),
+    });
 
-  if (!response.ok || json.error) {
-    throw new Error(
-      `OpenRouter API error ${response.status}: ${json.error?.message ?? JSON.stringify(json)}`
-    );
+    const json = (await response.json()) as OpenRouterResponse;
+
+    if (!response.ok || json.error) {
+      throw new Error(
+        `OpenRouter API error ${response.status}: ${json.error?.message ?? JSON.stringify(json)}`
+      );
+    }
+
+    const message = json.choices?.[0];
+    const content = message?.message?.content;
+    if (!content) {
+      throw new Error('OpenRouter returned an empty response');
+    }
+
+    // Check if the response was truncated due to token limit
+    if (message?.finish_reason === 'length') {
+      console.warn(`⚠️ ERA case summary truncated due to max_tokens limit`);
+      return content.trim() + '\n\n[WARNING: Summary was truncated due to length limits. Please read full PDF.]';
+    }
+
+    return content.trim();
+  } finally {
+    // Always clear the timeout to prevent memory leaks
+    clearTimeout(timeoutId);
   }
-
-  const message = json.choices?.[0];
-  const content = message?.message?.content;
-  if (!content) {
-    throw new Error('OpenRouter returned an empty response');
-  }
-
-  // Check if the response was truncated due to token limit
-  if (message?.finish_reason === 'length') {
-    console.warn(`⚠️ ERA case summary truncated due to max_tokens limit`);
-    return content.trim() + '\n\n[WARNING: Summary was truncated due to length limits. Please read full PDF.]';
-  }
-
-  return content.trim();
 }
 
 // ─── Summarise a single case ──────────────────────────────────────────────────
