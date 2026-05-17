@@ -191,9 +191,16 @@ async function callOpenRouter(
     );
   }
 
-  const content = json.choices?.[0]?.message?.content;
+  const message = json.choices?.[0];
+  const content = message?.message?.content;
   if (!content) {
     throw new Error('OpenRouter returned an empty response');
+  }
+
+  // Check if the response was truncated due to token limit
+  if (message?.finish_reason === 'length') {
+    console.warn(`⚠️ Employment Court case summary truncated due to max_tokens limit`);
+    return content.trim() + '\n\n[WARNING: Summary was truncated due to length limits. Please read full judgment.]';
   }
 
   return content.trim();
@@ -225,7 +232,7 @@ export async function summariseEmploymentCourtCase(
   const request: OpenRouterRequest = {
     model,
     messages: buildMessages(caseData, pdfContent, model),
-    max_tokens: 2500, // ≈1,800–2,000 words for complex appeal cases with multiple issues
+    max_tokens: 4000, // Increased to 4000 to capture longer/complex appellate judgments (~3000–3200 words)
   };
 
   for (let attempt = 1; attempt <= 2; attempt++) {

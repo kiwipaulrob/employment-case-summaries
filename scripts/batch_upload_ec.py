@@ -18,7 +18,12 @@ except ImportError:
     from pdfminer.high_level import extract_text
 
 WORKER_URL = "https://whenroutinebiteshard.com/admin/upload-ec-case-text"
-ADMIN_SECRET = "Banana1717"
+
+# FIX: Pull admin secret from environment variable to prevent hardcoding in script
+ADMIN_SECRET = os.environ.get("ERA_ADMIN_SECRET")
+if not ADMIN_SECRET:
+    raise ValueError("CRITICAL: ERA_ADMIN_SECRET environment variable is not set. Run: export ERA_ADMIN_SECRET='your_password'")
+
 UPLOADS_DIR = "/agent/uploads"
 
 # All 20 new EC cases to process (skip FHE-73 duplicate)

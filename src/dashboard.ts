@@ -16,7 +16,7 @@ export function getDashboardHtml(status: {
   const subscriberRows = (status.subscribers || []).map(sub => `
     <div class="subscriber-row">
       <div class="subscriber-info">
-        <div class="subscriber-name">${escapeHtml(sub.name)}</div>
+        <div class="subscriber-name">${escapeHtml(sub.name || 'No Name Provided')}</div>
         <div class="subscriber-email">${escapeHtml(sub.email)}</div>
         <div class="subscriber-status">${sub.confirmed ? '✓ Confirmed' : '⏳ Pending'}</div>
       </div>

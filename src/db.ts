@@ -351,3 +351,48 @@ export async function addSubscriberPending(
   await addPendingSubscriber(db, email, name, confirmToken, unsubscribeToken);
   return { token: confirmToken, alreadyActive: false };
 }
+
+// ─── Processing lock ──────────────────────────────────────────────────────
+
+/**
+ * Sets a processing lock to prevent concurrent cron executions.
+ * Uses INSERT OR REPLACE with timestamp to track lock age.
+ */
+export async function setProcessingLock(db: D1Database, locked: boolean): Promise<void> {
+  const value = locked ? '1' : '0';
+  await db
+    .prepare(`INSERT OR REPLACE INTO config (key, value, updated_at) VALUES ('is_processing', ?, datetime('now'))`)
+    .bind(value)
+    .run();
+}
+
+/**
+ * Checks if a processing lock is currently active.
+ * Returns false if the lock is stale (older than 10 minutes).
+ * This prevents deadlock if a cron run crashes without releasing the lock.
+ */
+export async function isProcessing(db: D1Database): Promise<boolean> {
+  const result = await db
+    .prepare(`SELECT value, updated_at FROM config WHERE key = 'is_processing'`)
+    .first<{ value: string; updated_at: string }>();
+  
+  if (result?.value !== '1') return false;
+  
+  // If lock is older than 10 minutes, consider it stale and ignore it
+  try {
+    const lockTime = new Date(result.updated_at).getTime();
+    const now = Date.now();
+    const lockAgeMs = now - lockTime;
+    const lockTimeoutMs = 10 * 60 * 1000; // 10 minutes
+    
+    if (lockAgeMs > lockTimeoutMs) {
+      console.warn(`Stale processing lock detected (age: ${Math.round(lockAgeMs / 1000)}s), treating as unlocked`);
+      return false;
+    }
+    
+    return true;
+  } catch (err) {
+    console.warn(`Error checking lock age: ${err}, treating lock as active`);
+    return true;
+  }
+}
