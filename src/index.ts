@@ -34,7 +34,7 @@ import {
   filterNewCases, markCaseSeen, getActiveSubscribers, getAllSubscribers,
   hasEmailBeenSentToday, recordEmailSent, recordRunAt, getRecentCases,
   getConfig, addSubscriberPending, confirmSubscriber, unsubscribeByToken,
-  deleteSubscriber, deleteStalePendingSubscribers,
+  deleteSubscriber, deleteStalePendingSubscribers, setProcessingLock, isProcessing,
 } from './db';
 import { scrapeRecentPage, enrichCasesWithDetails } from './scraper';
 import { getPdfContent, getPdfContentFromBytes } from './pdf';
@@ -104,11 +104,18 @@ async function getAndClearEmailNotice(db: D1Database): Promise<string | null> {
  * @returns Extracted text string
  */
 async function extractTextWithPython(pdfBytes: ArrayBuffer, env: Env): Promise<string> {
-  const response = await env.PDF_PARSER.fetch('http://pdf-parser.local/', {
+  // 20-second circuit breaker to prevent infinite hangs
+  const timeoutPromise = new Promise<never>(
+    (_, reject) => setTimeout(() => reject(new Error('PDF extraction timeout (20s)')), 20000)
+  );
+
+  const fetchPromise = env.PDF_PARSER.fetch('http://pdf-parser.local/', {
     method: 'POST',
     body: pdfBytes,
     headers: { 'Content-Type': 'application/pdf' },
   });
+
+  const response = await Promise.race([fetchPromise, timeoutPromise]);
 
   if (!response.ok) {
     const errorData: any = await response.json();
@@ -864,6 +871,14 @@ async function runDigest(env: Env, force = false, limit = 3): Promise<RunResult>
       return result;
     }
 
+    // Step 1.5: Concurrency lock — prevent race conditions from duplicate cron triggers
+    if (await isProcessing(env.DB)) {
+      console.log('ERA Digest: Another instance is currently processing. Exiting to prevent race condition.');
+      return result;
+    }
+    await setProcessingLock(env.DB, true);
+    console.log('ERA Digest: Processing lock acquired');
+
     // Step 2: Scrape
     console.log(`ERA Digest: scraping ${env.SOURCE_URL}`);
     let allCases = await scrapeRecentPage(env.SOURCE_URL);
@@ -885,7 +900,7 @@ async function runDigest(env: Env, force = false, limit = 3): Promise<RunResult>
     // Step 4: Enrich
     const enrichedCases = await enrichCasesWithDetails(newCases);
 
-    // Steps 5 & 6: Summarise + store
+    // Steps 5 & 6: Summarise + store (only commit if successful)
     const usePdfPassthrough = env.USE_PDF_URL_PASSTHROUGH !== 'false';
     const processedCases: ProcessedCase[] = [];
 
@@ -913,23 +928,26 @@ async function runDigest(env: Env, force = false, limit = 3): Promise<RunResult>
         }
       }
 
-      if (success) result.summarised++;
-
-      const processedCase: ProcessedCase = {
-        ...c,
-        summary,
-        processedAt: new Date().toISOString(),
-        source: 'ERA',
-      };
-      processedCases.push(processedCase);
-      await markCaseSeen(env.DB, processedCase, 'ERA');
+      // FIX: Only commit to database and add to processedCases if successful
+      // Failed cases are skipped and will be retried on next run
+      if (success) {
+        result.summarised++;
+        const processedCase: ProcessedCase = {
+          ...c,
+          summary,
+          processedAt: new Date().toISOString(),
+          source: 'ERA',
+        };
+        processedCases.push(processedCase);
+        await markCaseSeen(env.DB, processedCase, 'ERA');
+      } else {
+        console.warn(`Skipping database commit for ${c.caseId} due to failure. Will retry next run.`);
+      }
     }
 
-    // Step 7: Send digest
+    // Step 7: Send digest (only if we have successful cases)
     const subscribers = await getActiveSubscribers(env.DB);
-    if (subscribers.length === 0) {
-      console.warn('ERA Digest: no active subscribers');
-    } else {
+    if (subscribers.length > 0 && processedCases.length > 0) {
       const notice = await getAndClearEmailNotice(env.DB);
       const { sent, failed } = await sendDigestToAll(
         subscribers, processedCases, env.SENDING_ADDRESS,
@@ -937,6 +955,10 @@ async function runDigest(env: Env, force = false, limit = 3): Promise<RunResult>
       );
       result.emailsSent = sent;
       if (failed > 0) result.failed += failed;
+    } else if (subscribers.length === 0) {
+      console.warn('ERA Digest: no active subscribers');
+    } else {
+      console.log('ERA Digest: no successful cases processed, skipping email');
     }
 
     // Step 8: Record
@@ -954,6 +976,11 @@ async function runDigest(env: Env, force = false, limit = 3): Promise<RunResult>
     ).catch(() => {});
     await recordRunAt(env.DB).catch(() => {});
     return result;
+  } finally {
+    // Always release the processing lock, even if a run crashes
+    await setProcessingLock(env.DB, false).catch(e => 
+      console.error(`Failed to release processing lock: ${e}`)
+    );
   }
 }
 
