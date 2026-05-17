@@ -102,6 +102,25 @@ export async function getRecentCases(
   return result.results;
 }
 
+/**
+ * Returns case statistics (counts by source).
+ * Used by dashboard to avoid loading full result sets.
+ */
+export async function getCaseStatistics(db: D1Database): Promise<{ total: number; era: number; ec: number }> {
+  const result = await db
+    .prepare('SELECT source, COUNT(*) as count FROM seen_cases GROUP BY source')
+    .all<{ source: string; count: number }>();
+  
+  let era = 0;
+  let ec = 0;
+  result.results.forEach((r) => {
+    if (r.source === 'ERA') era = r.count;
+    if (r.source === 'EMPLOYMENT_COURT') ec = r.count;
+  });
+  
+  return { total: era + ec, era, ec };
+}
+
 // ─── Subscribers ──────────────────────────────────────────────────────────────
 
 /**

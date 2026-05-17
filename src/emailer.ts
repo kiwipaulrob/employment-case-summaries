@@ -472,28 +472,33 @@ export async function sendDigestToAll(
   let sent = 0;
   let failed = 0;
 
-  for (const subscriber of subscribers) {
-    const unsubscribeUrl = subscriber.unsubscribe_token
-      ? `${siteUrl}/unsubscribe?token=${subscriber.unsubscribe_token}`
-      : `${siteUrl}/unsubscribe`;
+  const BATCH_SIZE = 25; // Send up to 25 emails concurrently
+  for (let i = 0; i < subscribers.length; i += BATCH_SIZE) {
+    const batch = subscribers.slice(i, i + BATCH_SIZE);
+    
+    await Promise.all(batch.map(async (subscriber) => {
+      const unsubscribeUrl = subscriber.unsubscribe_token
+        ? `${siteUrl}/unsubscribe?token=${subscriber.unsubscribe_token}`
+        : `${siteUrl}/unsubscribe`;
 
-    const { subject, html, text } = buildDigestEmail(cases, timezone, unsubscribeUrl, notice);
+      const { subject, html, text } = buildDigestEmail(cases, timezone, unsubscribeUrl, notice);
 
-    try {
-      await sendEmail({
-        from,
-        to: subscriber.email,
-        subject,
-        html,
-        text,
-        emailBinding,
-      });
-      sent++;
-      console.log(`Email sent to ${subscriber.email}`);
-    } catch (err) {
-      failed++;
-      console.error(`Failed to send email to ${subscriber.email}: ${err}`);
-    }
+      try {
+        await sendEmail({
+          from,
+          to: subscriber.email,
+          subject,
+          html,
+          text,
+          emailBinding,
+        });
+        sent++;
+        console.log(`Email sent to ${subscriber.email}`);
+      } catch (err) {
+        failed++;
+        console.error(`Failed to send email to ${subscriber.email}: ${err}`);
+      }
+    }));
   }
 
   return { sent, failed };
