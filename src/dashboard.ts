@@ -298,6 +298,8 @@ export function getDashboardHtml(status: {
       <button class="tab-btn" type="button" onclick="switchTab(event, 'ec-upload')">EC Case Upload</button>
       <button class="tab-btn" type="button" onclick="switchTab(event, 'subscribers')">Subscribers</button>
       <button class="tab-btn" type="button" onclick="switchTab(event, 'analytics')">Analytics</button>
+      <button class="tab-btn" type="button" onclick="switchTab(event, 'prompts')">Prompts</button>
+      <button class="tab-btn" type="button" onclick="switchTab(event, 'rescan')">Rescan</button>
     </div>
 
     <!-- Digest Controls Tab -->
@@ -414,6 +416,72 @@ export function getDashboardHtml(status: {
             <div class="stat-label">Total Subscribers</div>
             <div class="stat-value">${status.total_subscribers}</div>
           </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Prompts Tab -->
+    <div id="prompts" class="tab-content">
+      <div class="card">
+        <div class="card-title">LLM System Prompts</div>
+        <p style="color: #666; margin-bottom: 1.5rem;">Edit the system prompts used by the LLM for summarization. Changes take effect immediately on the next case processed.</p>
+        
+        <form id="prompts-form">
+          <div class="form-group">
+            <label for="prompt-era"><strong>ERA Determinations Prompt</strong></label>
+            <textarea id="prompt-era" name="prompt_era" style="min-height: 300px; font-family: monospace; font-size: 0.9rem; padding: 0.75rem; border: 1px solid #ddd; border-radius: 4px; width: 100%; box-sizing: border-box;"></textarea>
+            <div style="margin-top: 0.5rem; padding: 1rem; background: #f0f5f2; border-left: 4px solid #4f6f52; border-radius: 4px;">
+              <strong>💡 Format Guide:</strong>
+              <ul style="margin: 0.5rem 0 0 0; padding-left: 1.5rem;">
+                <li>Keep under 350 words for brevity</li>
+                <li>Use sections: PARTIES, REPRESENTATIVES, FACTS, LEGAL ISSUES, HOW THE ISSUES WERE RESOLVED, OUTCOME, REMEDY</li>
+                <li>Use numbered lists for issues and resolutions</li>
+                <li>Prioritize brevity over exhaustive completeness</li>
+                <li>Include anti-hallucination instructions for representative names</li>
+              </ul>
+            </div>
+          </div>
+
+          <div class="form-group" style="margin-top: 2rem;">
+            <label for="prompt-ec"><strong>Employment Court Judgments Prompt</strong></label>
+            <textarea id="prompt-ec" name="prompt_ec" style="min-height: 300px; font-family: monospace; font-size: 0.9rem; padding: 0.75rem; border: 1px solid #ddd; border-radius: 4px; width: 100%; box-sizing: border-box;"></textarea>
+            <div style="margin-top: 0.5rem; padding: 1rem; background: #f0f5f2; border-left: 4px solid #4f6f52; border-radius: 4px;">
+              <strong>💡 Format Guide:</strong>
+              <ul style="margin: 0.5rem 0 0 0; padding-left: 1.5rem;">
+                <li>Keep under 350 words for brevity</li>
+                <li>Use 7 sections: JUDGE & DATE, PARTIES, REPRESENTATIVES, FACTS, ERA FINDINGS, EMPLOYMENT COURT ISSUES RAISED, HOW THE EMPLOYMENT COURT ISSUES WERE RESOLVED, OUTCOME & REMEDY</li>
+                <li>Do NOT include [JUDGMENT ON APPEAL] or similar flags</li>
+                <li>No preamble text before structured output</li>
+                <li>Start immediately with JUDGE & DATE</li>
+              </ul>
+            </div>
+          </div>
+
+          <button type="submit" class="button" style="margin-top: 1.5rem;">Save Prompts</button>
+        </form>
+        <div id="prompts-status"></div>
+      </div>
+    </div>
+
+    <!-- Rescan Tab -->
+    <div id="rescan" class="tab-content">
+      <div class="card">
+        <div class="card-title">Rescan Cases</div>
+        <p style="color: #666; margin-bottom: 1.5rem;">Re-process previously stored cases with updated LLM prompts. This is useful after modifying the prompts above.</p>
+        
+        <div>
+          <div class="form-group">
+            <label for="rescan-limit">Number of cases to rescan</label>
+            <input type="number" id="rescan-limit" name="limit" min="1" max="50" value="5">
+            <small>Rescans the most recent N cases. Default: 5.</small>
+          </div>
+
+          <div style="display: flex; gap: 1rem; margin-top: 1.5rem;">
+            <button type="button" class="button" onclick="rescanSilently()">Rescan Silently</button>
+            <button type="button" class="button" onclick="rescanAndSendEmail()">Rescan & Send Email</button>
+          </div>
+
+          <div id="rescan-status"></div>
         </div>
       </div>
     </div>
@@ -557,6 +625,109 @@ export function getDashboardHtml(status: {
     function cancelPreview() {
       document.getElementById('preview-section').style.display = 'none';
     }
+
+    // Load prompts on page load
+    async function loadPrompts() {
+      try {
+        const response = await fetch('/admin/dashboard/get-prompts', {
+          credentials: 'same-origin'
+        });
+        if (!response.ok) throw new Error('Failed to load prompts');
+        const data = await response.json();
+        document.getElementById('prompt-era').value = data.prompt_era || '';
+        document.getElementById('prompt-ec').value = data.prompt_ec || '';
+      } catch (err) {
+        console.error('Error loading prompts:', err);
+      }
+    }
+
+    // Handle prompts form submission
+    document.getElementById('prompts-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const statusEl = document.getElementById('prompts-status');
+      statusEl.innerHTML = '⏳ Saving prompts...';
+      statusEl.className = '';
+
+      try {
+        const formData = new FormData(document.getElementById('prompts-form'));
+        const response = await fetch('/admin/dashboard/update-prompts', {
+          method: 'POST',
+          credentials: 'same-origin',
+          body: formData
+        });
+
+        if (!response.ok) throw new Error(await response.text());
+        
+        statusEl.className = 'alert alert-success';
+        statusEl.innerHTML = '<strong>✓ Prompts saved successfully!</strong> Changes will apply to the next case processed.';
+        setTimeout(() => {
+          statusEl.innerHTML = '';
+          statusEl.className = '';
+        }, 5000);
+      } catch (err) {
+        statusEl.className = 'alert alert-error';
+        statusEl.innerHTML = '<strong>❌ Error:</strong> ' + err.message;
+      }
+    });
+
+    // Handle rescan silently
+    async function rescanSilently() {
+      const statusEl = document.getElementById('rescan-status');
+      const limit = document.getElementById('rescan-limit').value;
+      statusEl.innerHTML = '⏳ Rescanning ' + limit + ' cases...';
+      statusEl.className = '';
+
+      try {
+        const response = await fetch('/admin/dashboard/rescan-cases?limit=' + limit, {
+          method: 'POST',
+          credentials: 'same-origin',
+          body: JSON.stringify({ send_email: false })
+        });
+
+        if (!response.ok) throw new Error(await response.text());
+        
+        statusEl.className = 'alert alert-success';
+        statusEl.innerHTML = '<strong>✓ Rescan complete!</strong> ' + limit + ' cases have been re-processed with the current prompts.';
+        setTimeout(() => {
+          statusEl.innerHTML = '';
+          statusEl.className = '';
+        }, 5000);
+      } catch (err) {
+        statusEl.className = 'alert alert-error';
+        statusEl.innerHTML = '<strong>❌ Error:</strong> ' + err.message;
+      }
+    }
+
+    // Handle rescan & send email
+    async function rescanAndSendEmail() {
+      const statusEl = document.getElementById('rescan-status');
+      const limit = document.getElementById('rescan-limit').value;
+      statusEl.innerHTML = '⏳ Rescanning ' + limit + ' cases and preparing email...';
+      statusEl.className = '';
+
+      try {
+        const response = await fetch('/admin/dashboard/rescan-cases?limit=' + limit, {
+          method: 'POST',
+          credentials: 'same-origin',
+          body: JSON.stringify({ send_email: true })
+        });
+
+        if (!response.ok) throw new Error(await response.text());
+        
+        statusEl.className = 'alert alert-success';
+        statusEl.innerHTML = '<strong>✓ Rescan complete and email sent!</strong> Updated summaries for ' + limit + ' cases have been emailed to subscribers.';
+        setTimeout(() => {
+          statusEl.innerHTML = '';
+          statusEl.className = '';
+        }, 5000);
+      } catch (err) {
+        statusEl.className = 'alert alert-error';
+        statusEl.innerHTML = '<strong>❌ Error:</strong> ' + err.message;
+      }
+    }
+
+    // Load prompts when page loads
+    document.addEventListener('DOMContentLoaded', loadPrompts);
   </script>
 </body>
 </html>`;
