@@ -33,7 +33,7 @@ import type { Env, ProcessedCase } from './types';
 import {
   filterNewCases, markCaseSeen, getActiveSubscribers, getAllSubscribers,
   hasEmailBeenSentToday, recordEmailSent, recordRunAt, getRecentCases, getCaseStatistics,
-  getConfig, addSubscriberPending, confirmSubscriber, unsubscribeByToken,
+  getConfig, setConfig, addSubscriberPending, confirmSubscriber, unsubscribeByToken,
   deleteSubscriber, deleteStalePendingSubscribers, setProcessingLock, isProcessing,
 } from './db';
 import { scrapeRecentPage, enrichCasesWithDetails } from './scraper';
@@ -556,6 +556,94 @@ export default {
         }, 200);
       } catch (err) {
         return jsonResponse({ error: `Upload failed: ${String(err)}` }, 500);
+      }
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // DASHBOARD API ROUTES (cookie auth — used by Prompts and Rescan tabs)
+    // ══════════════════════════════════════════════════════════════════════════
+
+    // GET /admin/dashboard/get-prompts — Load current LLM prompts from D1 config
+    if (request.method === 'GET' && url.pathname === '/admin/dashboard/get-prompts') {
+      const session = getAdminCookie(request);
+      if (session !== env.ADMIN_SECRET) {
+        return new Response('Unauthorized', { status: 401 });
+      }
+      try {
+        const [promptEra, promptEc] = await Promise.all([
+          getConfig(env.DB, 'prompt_era'),
+          getConfig(env.DB, 'prompt_ec'),
+        ]);
+        return jsonResponse({ prompt_era: promptEra || '', prompt_ec: promptEc || '' });
+      } catch (err) {
+        return jsonResponse({ error: String(err) }, 500);
+      }
+    }
+
+    // POST /admin/dashboard/update-prompts — Save LLM prompts to D1 config
+    if (request.method === 'POST' && url.pathname === '/admin/dashboard/update-prompts') {
+      const session = getAdminCookie(request);
+      if (session !== env.ADMIN_SECRET) {
+        return new Response('Unauthorized', { status: 401 });
+      }
+      try {
+        const formData = await request.formData();
+        const promptEra = (formData.get('prompt_era') as string ?? '').trim();
+        const promptEc = (formData.get('prompt_ec') as string ?? '').trim();
+        await Promise.all([
+          setConfig(env.DB, 'prompt_era', promptEra),
+          setConfig(env.DB, 'prompt_ec', promptEc),
+        ]);
+        return jsonResponse({ success: true, message: 'Prompts saved' });
+      } catch (err) {
+        return jsonResponse({ error: String(err) }, 500);
+      }
+    }
+
+    // POST /admin/dashboard/rescan-cases — Delete last N cases and reprocess
+    if (request.method === 'POST' && url.pathname === '/admin/dashboard/rescan-cases') {
+      const session = getAdminCookie(request);
+      if (session !== env.ADMIN_SECRET) {
+        return new Response('Unauthorized', { status: 401 });
+      }
+      try {
+        const limit = Math.min(parseInt(url.searchParams.get('limit') ?? '5', 10), 50);
+        const body = await request.json() as { send_email?: boolean } | null;
+        const sendEmail = body?.send_email ?? false;
+
+        // Get the N most recent cases (to know what we deleted)
+        const recentCases = await getRecentCases(env.DB, limit);
+
+        if (recentCases.length === 0) {
+          return jsonResponse({ error: 'No cases to rescan', deleted: 0 }, 400);
+        }
+
+        // Delete them from seen_cases using their composite keys
+        for (const c of recentCases) {
+          await env.DB.prepare(
+            'DELETE FROM seen_cases WHERE source = ? AND pdf_filename = ?'
+          ).bind(c.source, c.pdf_filename).run();
+        }
+
+        // If sendEmail, set a notice banner, then trigger pipeline
+        if (sendEmail && recentCases.length > 0) {
+          await setConfig(env.DB, 'email_notice',
+            `Updated summaries for ${recentCases.length} recently rescanned case(s) (new prompt applied).`
+          );
+          // Fire-and-forget the pipeline
+          ctx.waitUntil(runDigest(env, true, limit));
+        }
+
+        return jsonResponse({
+          success: true,
+          deleted: recentCases.length,
+          send_email: sendEmail,
+          message: sendEmail
+            ? `Deleted ${recentCases.length} cases, setting notice banner and triggering pipeline.`
+            : `Deleted ${recentCases.length} cases. Run /admin/send-digest to email, or wait for next cron.`
+        });
+      } catch (err) {
+        return jsonResponse({ error: String(err) }, 500);
       }
     }
 
