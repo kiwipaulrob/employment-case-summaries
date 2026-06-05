@@ -635,10 +635,17 @@ export default {
       return jsonResponse({ seeded, message: `Marked ${seeded} existing cases as seen.` });
     }
 
-    // POST /admin/clear-seen
+    // POST /admin/clear-seen — Clear seen_cases table (requires explicit confirmation)
     if (request.method === 'POST' && url.pathname === '/admin/clear-seen') {
-      await env.DB.prepare('DELETE FROM seen_cases').run();
-      return jsonResponse({ message: 'seen_cases table cleared.' });
+      const body = await request.json() as { confirm?: boolean } | null;
+      if (!body?.confirm) {
+        return jsonResponse({
+          error: 'Confirmation required. Send {"confirm": true} to proceed.',
+          warning: 'This will permanently delete all processed case records.'
+        }, 400);
+      }
+      const result = await env.DB.prepare('DELETE FROM seen_cases').run();
+      return jsonResponse({ message: 'seen_cases table cleared.', deleted: result.meta.changes ?? 0 });
     }
 
     // POST /admin/delete-seen-case — remove a single case from seen_cases by case_id
@@ -738,9 +745,14 @@ export default {
     if (request.method === 'GET' && url.pathname === '/admin/errors') {
       try {
         const limit = parseInt(url.searchParams.get('limit') ?? '20', 10);
-        // For now, return empty array since we don't have error tracking table yet
-        // This will be populated by error logging in production
-        return jsonResponse({ errors: [] });
+        // Query config table for logged error entries (keys prefixed with error_)
+        const result = await env.DB.prepare(
+          `SELECT value FROM config WHERE key = 'last_error' LIMIT 1`
+        ).first<{ value: string }>();
+        return jsonResponse({
+          errors: result?.value ? [JSON.parse(result.value)] : [],
+          note: 'Basic error tracking — errors are logged to config:last_error. For full tracking, add a dedicated error_log table.'
+        });
       } catch (err) {
         return jsonResponse({ error: String(err) }, 500);
       }
@@ -978,6 +990,10 @@ async function runDigest(env: Env, force = false, limit = 3): Promise<RunResult>
     const errMsg = err instanceof Error ? err.message : String(err);
     console.error(`ERA Digest: fatal error — ${errMsg}`);
     result.error = errMsg;
+    // Log error for /admin/errors endpoint
+    await env.DB.prepare(
+      `INSERT OR REPLACE INTO config (key, value, updated_at) VALUES ('last_error', ?, datetime('now'))`
+    ).bind(JSON.stringify({ message: errMsg, timestamp: new Date().toISOString(), type: 'fatal' })).run().catch(() => {});
     await sendAdminAlert(
       `Fatal error:\n\n${errMsg}`,
       env.SENDING_ADDRESS, env.ADMIN_EMAIL, env.EMAIL

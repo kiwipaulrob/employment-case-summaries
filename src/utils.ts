@@ -186,3 +186,10 @@ export function getSummaryExcerpt(summary: string, maxLength = 260): string {
 
   return summary.slice(0, maxLength).trimEnd() + '…';
 }
+
+/**
+ * Escapes a string for use in a SQL LIKE clause.
+ */
+export function escapeLike(s: string): string {
+  return s.replace(/[%_\\]/g, '\\$&');
+}
