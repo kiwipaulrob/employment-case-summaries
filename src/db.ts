@@ -351,6 +351,18 @@ export async function getConfig(db: D1Database, key: string): Promise<string | n
 }
 
 /**
+ * Sets a config value (insert or replace).
+ */
+export async function setConfig(db: D1Database, key: string, value: string): Promise<void> {
+  await db
+    .prepare(
+      `INSERT OR REPLACE INTO config (key, value, updated_at) VALUES (?, ?, datetime('now'))`
+    )
+    .bind(key, value)
+    .run();
+}
+
+/**
  * Alias for addPendingSubscriber to match the old interface.
  */
 export async function addSubscriberPending(
