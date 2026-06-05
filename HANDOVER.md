@@ -1,6 +1,26 @@
 # ERA Digest Worker — Agent Handover & Maintenance Guide
 
-_Last updated: June 2026. Written for a successor agent taking over this codebase._
+_Last updated: 6 June 2026. Written for a successor agent taking over this codebase._
+
+---
+
+## Recent Agent Activity Log
+
+| Date | Commit | Author | What changed |
+|------|--------|--------|-------------|
+| 6 Jun 2026 | `039234f5` | kiwipaulrob | Added this HANDOVER.md |
+| 5 Jun 2026 | `15d5a6b3` | root (new agent) | README.md: replaced hardcoded `Banana1717` example with `<your-admin-secret>` placeholder. Closed issue #3. ✅ Correct, low-risk fix. No source code touched. |
+| 30 May 2026 | `59fc45c6` | kiwipaulrob | Added `scripts/seed_prompts.sql` — seeds real ERA/EC prompts into D1 |
+| 29 May 2026 | `a01d9345` | kiwipaulrob | Added Prompts and Rescan tabs to admin dashboard (dashboard.ts 743 lines) |
+| 24 May 2026 | `090a0d5e` | kiwipaulrob | Increased LLM timeout from 25s → 45s to fix AbortError failures |
+
+**⚠️ README.md is partially stale** — a future agent should fix these (do NOT fix without user's knowledge as README is public):
+- Model name shows `anthropic/claude-3.5-sonnet-20241022` — actual model is `anthropic/claude-sonnet-4.6`
+- "Option 1: Browser Paste (Recommended)" as deployment method is wrong — deployment is via GitHub Actions
+- Migration table missing `0007_add_llm_prompts.sql`
+- API endpoints table incomplete (missing Prompts/Rescan/dashboard routes added in V4)
+- References docs that don't exist: `docs/DEPLOYMENT.md`, `docs/ARCHITECTURE.md`, `docs/PYTHON_SIDECAR.md`
+- "Last updated: May 2026" is stale
 
 ---
 
