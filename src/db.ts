@@ -6,6 +6,7 @@
  */
 
 import type { CaseListing, ProcessedCase, DbSubscriber, DbSeenCase } from './types';
+import { validateSummaryNotDoubleEncoded } from './utils';
 
 // ─── Seen cases ───────────────────────────────────────────────────────────────
 
@@ -55,6 +56,11 @@ export async function markCaseSeen(
   processedCase: ProcessedCase,
   source: string = 'ERA'
 ): Promise<void> {
+  // Safety guardrail: prevent double-JSON-encoded summaries from entering the DB
+  if (processedCase.summary) {
+    validateSummaryNotDoubleEncoded(processedCase.summary);
+  }
+
   // Extract pdf_filename from pdfUrl
   const pdfFilename = processedCase.pdfUrl
     ? processedCase.pdfUrl.split('/').pop() || ''

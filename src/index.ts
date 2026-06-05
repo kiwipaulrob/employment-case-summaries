@@ -50,7 +50,7 @@ import {
   adminLoginPage, adminPage,
 } from './pages';
 import { getDashboardHtml } from './dashboard';
-import { isValidEmail } from './utils';
+import { isValidEmail, validateSummaryNotDoubleEncoded } from './utils';
 
 // ─── Cookie helpers ───────────────────────────────────────────────────────────
 
@@ -73,23 +73,27 @@ function clearAdminCookie(): string {
 // ─── Email notice helper ──────────────────────────────────────────────────────
 
 /**
- * Fetch optional email notice from D1 config, then immediately clear it.
- * This is a one-shot: after fetching, the notice is set to NULL so it won't
- * appear in subsequent emails until manually set again.
+ * Fetch optional email notice from D1 config (peek only — does NOT clear).
  * Returns null if no notice is configured.
  */
-async function getAndClearEmailNotice(db: D1Database): Promise<string | null> {
+async function getEmailNotice(db: D1Database): Promise<string | null> {
   try {
-    const notice = await getConfig(db, 'email_notice');
-    if (notice) {
-      // Clear it immediately after reading
-      await db.prepare(`UPDATE config SET value = NULL WHERE key = 'email_notice'`).run();
-      console.log('Email notice cleared after read');
-    }
-    return notice;
+    return await getConfig(db, 'email_notice');
   } catch (err) {
-    console.warn(`Failed to fetch/clear email notice: ${err}`);
+    console.warn(`Failed to fetch email notice: ${err}`);
     return null;
+  }
+}
+
+/**
+ * Clears the email notice after successful delivery.
+ */
+async function clearEmailNotice(db: D1Database): Promise<void> {
+  try {
+    await db.prepare(`UPDATE config SET value = NULL WHERE key = 'email_notice'`).run();
+    console.log('Email notice cleared after successful delivery');
+  } catch (err) {
+    console.warn(`Failed to clear email notice: ${err}`);
   }
 }
 
@@ -461,6 +465,10 @@ export default {
           }, 500);
         }
 
+        // Validate no double-encoding before storing
+        const summaryStr = JSON.stringify(summaryResult.summary);
+        validateSummaryNotDoubleEncoded(summaryStr);
+
         // Store in D1
         const now = new Date().toISOString();
         await env.DB.prepare(`
@@ -475,7 +483,7 @@ export default {
           caseListing.member,
           caseListing.datePublished,
           caseListing.category,
-          JSON.stringify(summaryResult.summary),
+          summaryStr,
           pdfUrl,
           now
         ).run();
@@ -535,6 +543,10 @@ export default {
         if (!summaryResult.success) {
           return jsonResponse({ error: `LLM summarisation failed: ${summaryResult.error}` }, 500);
         }
+        // Validate no double-encoding before storing
+        const summaryStr = summaryResult.summary;
+        validateSummaryNotDoubleEncoded(summaryStr);
+
         const now = new Date().toISOString();
         // Use extracted judge name if no member was provided
         const memberField = body.member || summaryResult.judgeName || null;
@@ -546,7 +558,7 @@ export default {
           pdfFilename, 'EMPLOYMENT_COURT',
           caseListing.title, caseListing.caseUrl, memberField,
           caseListing.datePublished, caseListing.category,
-          summaryResult.summary, pdfUrl, now
+          summaryStr, pdfUrl, now
         ).run();
         return jsonResponse({
           message: 'EC case uploaded and summarised successfully',
@@ -694,7 +706,7 @@ export default {
           });
         }
 
-        const notice = await getAndClearEmailNotice(env.DB);
+        const notice = await getEmailNotice(env.DB);
         const { sent, failed } = await sendDigestToAll(
           subscribers, cases, env.SENDING_ADDRESS, env.TIMEZONE, env.EMAIL, env.SITE_URL, notice
         );
@@ -947,13 +959,18 @@ async function runDigest(env: Env, force = false, limit = 3): Promise<RunResult>
     // Step 7: Send digest (only if we have successful cases)
     const subscribers = await getActiveSubscribers(env.DB);
     if (subscribers.length > 0 && processedCases.length > 0) {
-      const notice = await getAndClearEmailNotice(env.DB);
+      const notice = await getEmailNotice(env.DB);
       const { sent, failed } = await sendDigestToAll(
         subscribers, processedCases, env.SENDING_ADDRESS,
         env.TIMEZONE, env.EMAIL, env.SITE_URL, notice
       );
       result.emailsSent = sent;
       if (failed > 0) result.failed += failed;
+      
+      // Only clear notice after successful email dispatch
+      if (sent > 0) {
+        await clearEmailNotice(env.DB);
+      }
       
       // Only mark cases as seen after successful email dispatch
       for (const pc of processedCases) {
