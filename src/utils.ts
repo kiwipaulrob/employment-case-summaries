@@ -163,6 +163,46 @@ export function summaryToPageHtml(summary: string): string {
  * Extracts a short excerpt from a structured LLM summary.
  * Tries to find the FACTS section; falls back to first non-label line.
  */
+
+export function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Strips LLM preambles and artifacts from a generated summary.
+ * Examples of what gets removed:
+ *   - "I'll analyze this determination..."
+ *   - "Let me provide a structured summary..."
+ *   - "[FINAL DETERMINATION]" flags
+ *   - "---FORMAT START---" / "---FORMAT END---" markers
+ */
+export function stripLlmArtifacts(text: string): string {
+  let cleaned = text;
+
+  // Remove common preambles
+  cleaned = cleaned.replace(/^['\"]?I['']ll\s+(analyze|summarize)\s+.*?\.?\s*\n\n/is, '');
+  cleaned = cleaned.replace(/^['\"]?Let\s+me\s+(provide|give)\s+.*?\.?\s*\n\n/is, '');
+  cleaned = cleaned.replace(/^['\"]?Here['']s\s+.*?\.?\s*\n\n/is, '');
+
+  // Remove document type flags (ERA)
+  cleaned = cleaned.replace(/^\[FINAL DETERMINATION\]\s*\n\n/im, '');
+  cleaned = cleaned.replace(/^\[INTERIM[^\]]*\]\s*\n\n/im, '');
+  cleaned = cleaned.replace(/^\[CONSENT ORDER\]\s*\n\n/im, '');
+  cleaned = cleaned.replace(/^\[COSTS ORDER\]\s*\n\n/im, '');
+
+  // Remove Employment Court markers
+  cleaned = cleaned.replace(/^\[JUDGMENT ON APPEAL\]\s*\n\n/im, '');
+
+  // Remove format markers
+  cleaned = cleaned.replace(/^---?FORMAT\s+START---?\s*\n*/im, '');
+  cleaned = cleaned.replace(/\n*---?FORMAT\s+END---?\s*$/im, '');
+
+  return cleaned.trim();
+}
+
+/**
+ * Extracts a short excerpt from a structured LLM summary.
+ */
 export function getSummaryExcerpt(summary: string, maxLength = 260): string {
   if (!summary || summary.startsWith('Summary unavailable') || summary.startsWith('(seeded')) {
     return '';

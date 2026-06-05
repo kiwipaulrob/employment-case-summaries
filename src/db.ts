@@ -362,10 +362,9 @@ export async function addSubscriberPending(
   if (existing && existing.active && existing.confirmed) {
     return { token: existing.unsubscribe_token ?? '', alreadyActive: true };
   }
-  
-  const { generateToken } = await import('./utils');
-  const confirmToken = generateToken();
-  const unsubscribeToken = generateToken();
+
+  const confirmToken = crypto.randomUUID();
+  const unsubscribeToken = crypto.randomUUID();
   
   await addPendingSubscriber(db, email, name, confirmToken, unsubscribeToken);
   return { token: confirmToken, alreadyActive: false };

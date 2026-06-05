@@ -14,6 +14,7 @@
 import type { CaseListing, OpenRouterRequest, OpenRouterResponse, SummaryResult } from './types';
 import type { PdfContent } from './pdf';
 import { truncateToTokenBudget } from './pdf';
+import { sleep, stripLlmArtifacts } from './utils';
 
 const OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1/chat/completions';
 
@@ -290,33 +291,4 @@ export async function summariseEmploymentCourtCase(
     summary: `Summary unavailable. [View full judgment](${caseData.caseUrl})`,
     success: false,
   };
-}
-
-// ─── Helper ───────────────────────────────────────────────────────────────
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-/**
- * Strip common LLM preambles and metadata artifacts that should never appear
- * in the final summary output.
- */
-function stripLlmArtifacts(text: string): string {
-  let cleaned = text;
-
-  // Remove "I'll analyze/summarize..." preambles (case-insensitive)
-  cleaned = cleaned.replace(/^['"]?I['']ll\s+(analyze|summarize)\s+.*?\.?\s*\n\n/is, "");
-  cleaned = cleaned.replace(/^['"]?I['']ll\s+(analyze|summarize)\s+.*?\.\s*\n\n/is, "");
-
-  // Remove [JUDGMENT ON APPEAL] markers that should never appear
-  cleaned = cleaned.replace(/^\[JUDGMENT ON APPEAL\]\s*\n\n/im, "");
-
-  // Remove "FORMAT START" and other internal prompt markers if they somehow made it through
-  cleaned = cleaned.replace(/^---?FORMAT\s+START---?\s*\n*/im, "");
-
-  // Remove closing "FORMAT END" markers
-  cleaned = cleaned.replace(/\n*---?FORMAT\s+END---?\s*$/im, "");
-
-  return cleaned.trim();
 }
