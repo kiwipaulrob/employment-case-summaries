@@ -431,13 +431,14 @@ export function getDashboardHtml(status: {
             <label for="prompt-era"><strong>ERA Determinations Prompt</strong></label>
             <textarea id="prompt-era" name="prompt_era" style="min-height: 300px; font-family: monospace; font-size: 0.9rem; padding: 0.75rem; border: 1px solid #ddd; border-radius: 4px; width: 100%; box-sizing: border-box;"></textarea>
             <div style="margin-top: 0.5rem; padding: 1rem; background: #f0f5f2; border-left: 4px solid #4f6f52; border-radius: 4px;">
-              <strong>💡 Format Guide:</strong>
+              <strong>📋 Prompt Structure Reference</strong>
+              <p style="margin: 0.5rem 0 0 0; font-size: 13px; color: #555;">This shows the expected section format the LLM should output. Your prompt should instruct the model to produce summaries in this structure.</p>
               <ul style="margin: 0.5rem 0 0 0; padding-left: 1.5rem;">
-                <li>Keep under 350 words for brevity</li>
-                <li>Use sections: PARTIES, REPRESENTATIVES, FACTS, LEGAL ISSUES, HOW THE ISSUES WERE RESOLVED, OUTCOME, REMEDY</li>
-                <li>Use numbered lists for issues and resolutions</li>
-                <li>Prioritize brevity over exhaustive completeness</li>
-                <li>Include anti-hallucination instructions for representative names</li>
+                <li>PARTIES, REPRESENTATIVES, FACTS, LEGAL ISSUES, HOW THE ISSUES WERE RESOLVED, OUTCOME, REMEDY</li>
+                <li>Numbered lists for issues and resolutions (1., 2., 3.)</li>
+                <li>Include status flags per issue: (Established), (Dismissed), (Not reached)</li>
+                <li>Anti-hallucination rule: representative names must be exact from document</li>
+                <li>Completeness check before submitting: verify all issues captured</li>
               </ul>
             </div>
           </div>
@@ -446,13 +447,14 @@ export function getDashboardHtml(status: {
             <label for="prompt-ec"><strong>Employment Court Judgments Prompt</strong></label>
             <textarea id="prompt-ec" name="prompt_ec" style="min-height: 300px; font-family: monospace; font-size: 0.9rem; padding: 0.75rem; border: 1px solid #ddd; border-radius: 4px; width: 100%; box-sizing: border-box;"></textarea>
             <div style="margin-top: 0.5rem; padding: 1rem; background: #f0f5f2; border-left: 4px solid #4f6f52; border-radius: 4px;">
-              <strong>💡 Format Guide:</strong>
+              <strong>📋 Prompt Structure Reference</strong>
+              <p style="margin: 0.5rem 0 0 0; font-size: 13px; color: #555;">This shows the expected section format the LLM should output. Your prompt should instruct the model to produce summaries in this structure.</p>
               <ul style="margin: 0.5rem 0 0 0; padding-left: 1.5rem;">
-                <li>Keep under 350 words for brevity</li>
-                <li>Use 7 sections: JUDGE & DATE, PARTIES, REPRESENTATIVES, FACTS, ERA FINDINGS, EMPLOYMENT COURT ISSUES RAISED, HOW THE EMPLOYMENT COURT ISSUES WERE RESOLVED, OUTCOME & REMEDY</li>
+                <li>JUDGE & DATE, PARTIES, REPRESENTATIVES, FACTS, ERA FINDINGS, EMPLOYMENT COURT ISSUES RAISED, HOW THE EMPLOYMENT COURT ISSUES WERE RESOLVED, OUTCOME & REMEDY</li>
                 <li>Do NOT include [JUDGMENT ON APPEAL] or similar flags</li>
                 <li>No preamble text before structured output</li>
                 <li>Start immediately with JUDGE & DATE</li>
+                <li>Include status flags per issue: (Upheld in appeal), (Dismissed on appeal), (Not reached)</li>
               </ul>
             </div>
           </div>
