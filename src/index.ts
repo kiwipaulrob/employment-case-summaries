@@ -433,13 +433,22 @@ export default {
           diagnostics.pdfTextLength = extractedText.length;
         }
         
+        // Clean extracted text — strip control/escape characters from CID font extraction
+        extractedText = cleanExtractedText(extractedText);
         const pdfContentForSummariser: PdfContent = { strategy: 'text', text: extractedText };
+
+        // Parse case title from filename if not provided
+        if (!title) {
+          const parsed = parseTitleFromFilename(resolvedFilename);
+          title = parsed.title;
+          if (!category) category = parsed.citation;
+        }
 
         // Create case listing object for summariser
         const caseListing = {
           caseId: resolvedFilename.replace(/\.pdf$/i, ''),
           title: title || resolvedFilename,
-          caseUrl: caseUrl || 'https://www.employmentcourt.govt.nz/judgments/decisions/?Filter_Jurisdiction=17',
+          caseUrl: caseUrl || pdfUrl,
           pdfUrl: pdfUrl,
           member: member || null,
           datePublished: datePublished || new Date().toISOString().split('T')[0],
@@ -1081,6 +1090,114 @@ async function runDigest(env: Env, force = false, limit = 3): Promise<RunResult>
 }
 
 // ─── Utilities ────────────────────────────────────────────────────────────────
+
+/**
+ * Clean extracted PDF text by stripping control/escape characters often produced
+ * by CID font extraction. Keeps printable ASCII, common Unicode, \n, \r, \t.
+ */
+function cleanExtractedText(text: string): string {
+  // Remove null bytes and other non-printable control chars (keep \t \n \r)
+  let cleaned = '';
+  for (let i = 0; i < text.length; i++) {
+    const ch = text.charCodeAt(i);
+    // Keep: printable ASCII (0x20-0x7E), tab(0x09), LF(0x0A), CR(0x0D), and
+    // Unicode above 0x7F (extended Latin, etc.)
+    if (ch >= 0x20 && ch <= 0x7E) {
+      cleaned += text[i];
+    } else if (ch === 0x09 || ch === 0x0A || ch === 0x0D) {
+      cleaned += text[i];
+    } else if (ch >= 0xA0) {
+      // Keep higher Unicode (printable non-ASCII chars like en-dash, smart quotes, macrons)
+      cleaned += text[i];
+    }
+    // Everything else (0x00-0x08, 0x0B-0x0C, 0x0E-0x1F, 0x7F-0x9F) is dropped
+  }
+
+  // Replace literal backslash-escape sequences that appear as text
+  cleaned = cleaned.replace(/\\n/g, '\n');
+  cleaned = cleaned.replace(/\\r/g, '\r');
+  cleaned = cleaned.replace(/\\t/g, ' ');
+
+  // Collapse runs of whitespace (but keep paragraph breaks)
+  cleaned = cleaned.replace(/[ \t]+/g, ' ');
+  cleaned = cleaned.replace(/\n{3,}/g, '\n\n');
+
+  return cleaned.trim();
+}
+
+/**
+ * Parse an EC PDF filename to extract a proper case title and citation.
+ *
+ * Handles two filename patterns:
+ *   1. Name-first: "Healey-v-Health-New-Zealand-2026-NZEmpC-98.pdf"
+ *      → "Healey v Health New Zealand", citation "[2026] NZEmpC 98"
+ *   2. Citation-first: "2026-NZEmpC-111-Du-Fall-v-Mokoia-School-Judgment-Copy.pdf"
+ *      → "Du Fall v Mokoia School", citation "[2026] NZEmpC 111"
+ */
+function parseTitleFromFilename(filename: string): { title: string; citation: string | null } {
+  const name = filename.replace(/\.pdf$/i, '');
+
+  // Extract citation: "2026-NZEmpC-98" or "2026-NZERA-225"
+  const citeMatch = name.match(/(\d{4}-NZ\w+-\d+)/i);
+  const citationStr = citeMatch ? citeMatch[1] : null;
+
+  // Build proper citation format: "[2026] NZEmpC 98"
+  let citation: string | null = null;
+  if (citationStr) {
+    const parts = citationStr.match(/(\d{4})-NZ(\w+)-(\d+)/i);
+    if (parts) {
+      citation = `[${parts[1]}] NZ${parts[2]} ${parts[3]}`;
+    } else {
+      citation = citationStr.replace(/-/g, ' ');
+    }
+  }
+
+  // Extract case name by removing the citation suffix/prefix
+  let caseName = name;
+  if (citationStr) {
+    // Remove the citation string
+    caseName = caseName.replace(citationStr, '');
+  }
+
+  // Strip common suffixes
+  caseName = caseName.replace(/-Judgment-Copy$/i, '');
+  caseName = caseName.replace(/-Judgment$/i, '');
+  caseName = caseName.replace(/-Decision$/i, '');
+  caseName = caseName.replace(/-Order$/i, '');
+  caseName = caseName.replace(/-Copy$/i, '');
+
+  // Strip trailing/leading hyphens
+  caseName = caseName.replace(/^-+|-+$/g, '');
+
+  // Replace remaining hyphens with spaces
+  caseName = caseName.replace(/-/g, ' ');
+
+  // Use the existing toTitleCase from utils for proper formatting
+  // (imported at top of file — but we duplicate the logic here for simplicity)
+  caseName = toTitleCaseSimple(caseName);
+
+  return { title: caseName, citation };
+}
+
+/**
+ * Simple title case for case names — keeps "v" and legal particles lowercase.
+ */
+function toTitleCaseSimple(s: string): string {
+  const particles = new Set([
+    'v', 'and', 'or', 'of', 'the', 'in', 'at', 'for',
+    'nor', 'but', 'to', 'a', 'an', 'by', 'as', 'per',
+  ]);
+  return s
+    .split(' ')
+    .map((word, i) => {
+      const lower = word.toLowerCase();
+      if (i === 0) return lower.charAt(0).toUpperCase() + lower.slice(1);
+      if (particles.has(lower)) return lower;
+      if (/^[A-Z]{2,3}$/.test(word)) return word;
+      return lower.charAt(0).toUpperCase() + lower.slice(1);
+    })
+    .join(' ');
+}
 
 function jsonResponse(data: unknown, status = 200): Response {
   return new Response(JSON.stringify(data, null, 2), {
