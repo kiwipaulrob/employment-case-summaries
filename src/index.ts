@@ -484,7 +484,7 @@ export default {
           caseListing.member,
           caseListing.datePublished,
           caseListing.category,
-          JSON.stringify(summaryResult.summary),
+          summaryResult.summary,
           pdfUrl,
           now
         ).run();
