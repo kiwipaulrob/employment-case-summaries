@@ -557,7 +557,7 @@ export function getDashboardHtml(status: {
         
         try {
           status.className = 'upload-status show alert alert-info';
-          status.textContent = `⏳ [${i+1}/${files.length}] Reading ${filename}...`;
+          status.textContent = '\u23F3 [' + (i+1) + '/' + files.length + '] Reading ' + filename + '...';
 
           const arrayBuffer = await new Promise((resolve, reject) => {
             const reader = new FileReader();
@@ -569,7 +569,7 @@ export function getDashboardHtml(status: {
           const url = new URL('/admin/upload-ec-case', window.location.origin);
           url.searchParams.set('filename', filename);
 
-          status.textContent = `⏳ [${i+1}/${files.length}] Uploading and summarising ${filename}...`;
+          status.textContent = '\u23F3 [' + (i+1) + '/' + files.length + '] Uploading and summarising ' + filename + '...';
 
           const response = await fetch(url.toString(), {
             method: 'POST',
@@ -580,20 +580,20 @@ export function getDashboardHtml(status: {
 
           if (!response.ok) {
             const error = await response.text();
-            results.push(`❌ ${filename}: ${error}`);
+            results.push('\u274C ' + filename + ': ' + error);
           } else {
-            results.push(`✅ ${filename}: Uploaded successfully`);
+            results.push('\u2705 ' + filename + ': Uploaded successfully');
           }
         } catch (err) {
-          results.push(`❌ ${filename}: ${err.message || err}`);
+          results.push('\u274C ' + filename + ': ' + (err.message || err));
         }
       }
 
       btn.disabled = false;
       btn.textContent = 'Upload & Summarise';
       
-      const succeeded = results.filter(r => r.startsWith('✅')).length;
-      const failed = results.filter(r => r.startsWith('❌')).length;
+      var succeeded = results.filter(function(r) { return r.indexOf('\u2705') === 0; }).length;
+      var failed = results.filter(function(r) { return r.indexOf('\u274C') === 0; }).length;
       
       if (files.length === 1 && succeeded === 1) {
         // Single file success — show the nice message
