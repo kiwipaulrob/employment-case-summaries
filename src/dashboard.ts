@@ -375,13 +375,13 @@ export function getDashboardHtml(status: {
             <div class="dropzone" id="dropzone" ondragover="dragOver(event)" ondragleave="dragLeave(event)" ondrop="drop(event)">
               <p>📄 Drag and drop your PDF here</p>
               <p style="font-size: 0.9rem; color: #999;">or click to browse</p>
-              <input type="file" id="pdf-input" name="file" accept=".pdf" style="display:none;" onchange="fileSelected()">
+              <input type="file" id="pdf-input" name="file" accept=".pdf" multiple style="display:none;" onchange="fileSelected()">
             </div>
             <small style="display: block; margin-top: 0.5rem;">Selected: <span id="file-name">None</span></small>
             <small style="display: block; margin-top: 0.25rem; color: #888;">PDF URL is auto-derived from the filename (employmentcourt.govt.nz/assets/Documents/Decisions/…)</small>
           </div>
 
-          <button type="submit" class="button">Upload & Summarise</button>
+          <button type="submit" class="button" id="upload-btn">Upload & Summarise</button>
           <div id="upload-status" class="upload-status"></div>
         </form>
       </div>
@@ -522,7 +522,9 @@ export function getDashboardHtml(status: {
       const input = document.getElementById('pdf-input');
       const fileName = document.getElementById('file-name');
       if (input.files.length > 0) {
-        fileName.textContent = input.files[0].name;
+        fileName.textContent = input.files.length === 1
+          ? input.files[0].name
+          : input.files.length + ' files selected';
       } else {
         fileName.textContent = 'None';
       }
@@ -536,6 +538,7 @@ export function getDashboardHtml(status: {
       e.preventDefault();
       const fileInput = document.getElementById('pdf-input');
       const status = document.getElementById('upload-status');
+      const btn = document.getElementById('upload-btn');
       
       if (!fileInput.files.length) {
         status.className = 'upload-status show alert alert-error';
@@ -543,57 +546,71 @@ export function getDashboardHtml(status: {
         return;
       }
 
-      const file = fileInput.files[0];
-      const filename = file.name;
+      const files = Array.from(fileInput.files);
+      btn.disabled = true;
+      btn.textContent = 'Uploading...';
       
-      try {
-        status.className = 'upload-status show alert alert-info';
-        status.textContent = '⏳ Reading PDF and extracting text...';
+      const results = [];
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        const filename = file.name;
+        
+        try {
+          status.className = 'upload-status show alert alert-info';
+          status.textContent = `⏳ [${i+1}/${files.length}] Reading ${filename}...`;
 
-        // Read file as ArrayBuffer
-        const arrayBuffer = await new Promise((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onload = () => resolve(reader.result);
-          reader.onerror = reject;
-          reader.readAsArrayBuffer(file);
-        });
+          const arrayBuffer = await new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(reader.result);
+            reader.onerror = reject;
+            reader.readAsArrayBuffer(file);
+          });
 
-        // Determine endpoint based on file type
-        // For now, always use the text-based endpoint with pdfminer extraction
-        const url = new URL('/admin/upload-ec-case', window.location.origin);
-        url.searchParams.set('filename', filename);
+          const url = new URL('/admin/upload-ec-case', window.location.origin);
+          url.searchParams.set('filename', filename);
 
-        status.textContent = '⏳ Uploading and summarising...';
+          status.textContent = `⏳ [${i+1}/${files.length}] Uploading and summarising ${filename}...`;
 
-        const response = await fetch(url.toString(), {
-          method: 'POST',
-          body: arrayBuffer,
-          headers: {
-            'Content-Type': 'application/pdf',
-          },
-          credentials: 'same-origin'
-        });
+          const response = await fetch(url.toString(), {
+            method: 'POST',
+            body: arrayBuffer,
+            headers: { 'Content-Type': 'application/pdf' },
+            credentials: 'same-origin'
+          });
 
-        if (!response.ok) {
-          const error = await response.text();
-          throw new Error(error || 'Upload failed');
+          if (!response.ok) {
+            const error = await response.text();
+            results.push(`❌ ${filename}: ${error}`);
+          } else {
+            results.push(`✅ ${filename}: Uploaded successfully`);
+          }
+        } catch (err) {
+          results.push(`❌ ${filename}: ${err.message || err}`);
         }
+      }
 
-        const result = await response.json();
+      btn.disabled = false;
+      btn.textContent = 'Upload & Summarise';
+      
+      const succeeded = results.filter(r => r.startsWith('✅')).length;
+      const failed = results.filter(r => r.startsWith('❌')).length;
+      
+      if (files.length === 1 && succeeded === 1) {
+        // Single file success — show the nice message
         status.className = 'upload-status show alert alert-success';
         status.innerHTML = '<strong>✓ Case uploaded successfully!</strong><br>The case has been summarised and stored in the database.';
-        
-        // Reset form
-        e.target.reset();
-        document.getElementById('file-name').textContent = 'None';
-        
-        setTimeout(() => {
-          status.classList.remove('show');
-        }, 5000);
-      } catch (err) {
-        status.className = 'upload-status show alert alert-error';
-        status.textContent = '❌ Error: ' + err.message;
+      } else {
+        status.className = 'upload-status show alert ' + (failed === 0 ? 'alert-success' : 'alert-warning');
+        status.innerHTML = '<strong>' + succeeded + '/' + files.length + ' cases processed</strong>' +
+          (failed > 0 ? ' (' + failed + ' failed)' : '') +
+          '<br><pre style="margin-top:8px;font-size:13px;white-space:pre-wrap;">' +
+          results.join('\n') +
+          '</pre>';
       }
+      
+      // Reset file input so user can re-upload
+      fileInput.value = '';
+      document.getElementById('file-name').textContent = 'None';
     });
 
     document.getElementById('digest-form').addEventListener('submit', async (e) => {
