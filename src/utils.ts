@@ -98,9 +98,13 @@ export function summaryToPageHtml(summary: string): string {
   }
 
   const SECTION_LABEL_MAP: Record<string, string> = {
+    'JUDGE & DATE': 'Judge & Date',
     'PARTIES': 'Parties',
     'REPRESENTATIVES': 'Representatives',
     'FACTS': 'Facts',
+    'ERA FINDINGS': 'ERA Findings',
+    'EMPLOYMENT COURT ISSUES RAISED': 'Employment Court Issues Raised',
+    'HOW THE EMPLOYMENT COURT ISSUES WERE RESOLVED': 'How the Employment Court Issues Were Resolved',
     'LEGAL ISSUES': 'Legal issues',
     'HOW THE ISSUES WERE RESOLVED': 'How the issues were resolved',
     'OUTCOME': 'Outcome',
@@ -169,7 +173,7 @@ export function getSummaryExcerpt(summary: string, maxLength = 260): string {
   }
 
   // Try to extract the FACTS section
-  const factsMatch = summary.match(/FACTS[:\s]*\n([\s\S]*?)(?:\n[A-Z ]{3,}[:\s]*\n|$)/);
+  const factsMatch = summary.match(/FACTS[:\s]*\n([\s\S]*?)(?:\n[A-Z &]{3,}[:\s]*\n|$)/);
   if (factsMatch?.[1]) {
     const excerpt = factsMatch[1].trim();
     return excerpt.length > maxLength ? excerpt.slice(0, maxLength).trimEnd() + '…' : excerpt;
@@ -179,7 +183,7 @@ export function getSummaryExcerpt(summary: string, maxLength = 260): string {
   const lines = summary.split('\n');
   for (const line of lines) {
     const trimmed = line.trim();
-    if (trimmed && !/^[A-Z ]{4,}:?\s*$/.test(trimmed)) {
+    if (trimmed && !/^[A-Z &]{4,}:?\s*$/.test(trimmed)) {
       return trimmed.length > maxLength ? trimmed.slice(0, maxLength).trimEnd() + '…' : trimmed;
     }
   }
