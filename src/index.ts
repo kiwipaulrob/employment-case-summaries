@@ -37,7 +37,7 @@ import {
   deleteSubscriber, deleteStalePendingSubscribers, setProcessingLock, isProcessing,
 } from './db';
 import { scrapeRecentPage, enrichCasesWithDetails } from './scraper';
-import { getPdfContent, getPdfContentFromBytes } from './pdf';
+import { getPdfContent, getPdfContentFromBytes, type PdfContent } from './pdf';
 import { summariseCase } from './summariser';
 import { summariseEmploymentCourtCase } from './summariserEmploymentCourt';
 import {
@@ -429,11 +429,11 @@ export default {
           diagnostics.pdfStrategy = 'fallback-flatedecode';
           const usePdfPassthrough = env.USE_PDF_URL_PASSTHROUGH !== 'false';
           const pdfContent = await getPdfContentFromBytes(arrayBuffer, usePdfPassthrough);
-          extractedText = typeof pdfContent.content === 'string' ? pdfContent.content : '';
+          extractedText = pdfContent.strategy === 'text' ? pdfContent.text : '';
           diagnostics.pdfTextLength = extractedText.length;
         }
         
-        const pdfContent = { content: extractedText };
+        const pdfContentForSummariser: PdfContent = { strategy: 'text', text: extractedText };
 
         // Create case listing object for summariser
         const caseListing = {
@@ -449,7 +449,7 @@ export default {
         // Summarise using Employment Court summariser
         const summaryResult = await summariseEmploymentCourtCase(
           caseListing,
-          pdfContent,
+          pdfContentForSummariser,
           env.OPENROUTER_API_KEY,
           env.OPENROUTER_MODEL
         );
