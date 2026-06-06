@@ -1096,27 +1096,31 @@ async function runDigest(env: Env, force = false, limit = 3): Promise<RunResult>
  * by CID font extraction. Keeps printable ASCII, common Unicode, \n, \r, \t.
  */
 function cleanExtractedText(text: string): string {
-  // Remove null bytes and other non-printable control chars (keep \t \n \r)
   let cleaned = '';
+
   for (let i = 0; i < text.length; i++) {
     const ch = text.charCodeAt(i);
-    // Keep: printable ASCII (0x20-0x7E), tab(0x09), LF(0x0A), CR(0x0D), and
-    // Unicode above 0x7F (extended Latin, etc.)
+
+    // Keep: printable ASCII (0x20-0x7E), tab(0x09), LF(0x0A), CR(0x0D)
     if (ch >= 0x20 && ch <= 0x7E) {
       cleaned += text[i];
     } else if (ch === 0x09 || ch === 0x0A || ch === 0x0D) {
       cleaned += text[i];
-    } else if (ch >= 0xA0) {
-      // Keep higher Unicode (printable non-ASCII chars like en-dash, smart quotes, macrons)
+    } else if (ch >= 0xA0 && ch !== 0xFEFF && ch !== 0xFFFE && ch !== 0xFFFF) {
+      // Keep higher Unicode (printable non-ASCII: en-dash, smart quotes, macrons, etc.)
+      // But drop BOM, non-characters, and other problematic codepoints
       cleaned += text[i];
     }
-    // Everything else (0x00-0x08, 0x0B-0x0C, 0x0E-0x1F, 0x7F-0x9F) is dropped
+    // Everything else including DEL (0x7F) and C1 controls (0x80-0x9F) is dropped
   }
 
   // Replace literal backslash-escape sequences that appear as text
   cleaned = cleaned.replace(/\\n/g, '\n');
   cleaned = cleaned.replace(/\\r/g, '\r');
   cleaned = cleaned.replace(/\\t/g, ' ');
+
+  // Strip any remaining bare backslash-bomb sequences
+  cleaned = cleaned.replace(/\\(?:[0-7]{1,3}|x[0-9a-fA-F]{2}|u[0-9a-fA-F]{4})/g, '');
 
   // Collapse runs of whitespace (but keep paragraph breaks)
   cleaned = cleaned.replace(/[ \t]+/g, ' ');
@@ -1126,13 +1130,14 @@ function cleanExtractedText(text: string): string {
 }
 
 /**
- * Parse an EC PDF filename to extract a proper case title and citation.
+ * Parse an EC PDF filename to extract a proper case title (with citation) and
+ * citation string.
  *
  * Handles two filename patterns:
  *   1. Name-first: "Healey-v-Health-New-Zealand-2026-NZEmpC-98.pdf"
- *      → "Healey v Health New Zealand", citation "[2026] NZEmpC 98"
+ *      → "Healey v Health New Zealand [2026] NZEmpC 98"
  *   2. Citation-first: "2026-NZEmpC-111-Du-Fall-v-Mokoia-School-Judgment-Copy.pdf"
- *      → "Du Fall v Mokoia School", citation "[2026] NZEmpC 111"
+ *      → "Du Fall v Mokoia School [2026] NZEmpC 111"
  */
 function parseTitleFromFilename(filename: string): { title: string; citation: string | null } {
   const name = filename.replace(/\.pdf$/i, '');
@@ -1176,7 +1181,10 @@ function parseTitleFromFilename(filename: string): { title: string; citation: st
   // (imported at top of file — but we duplicate the logic here for simplicity)
   caseName = toTitleCaseSimple(caseName);
 
-  return { title: caseName, citation };
+  // Include citation in the title
+  const fullTitle = citation ? `${caseName} ${citation}` : caseName;
+
+  return { title: fullTitle, citation };
 }
 
 /**
