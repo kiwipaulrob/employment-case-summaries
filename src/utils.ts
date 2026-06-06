@@ -23,8 +23,8 @@ export function toTitleCase(s: string): string {
       if (i === 0) return lower.charAt(0).toUpperCase() + lower.slice(1);
       // Non-first particles always go lowercase (e.g. "THE" → "the", "OF" → "of")
       if (particles.has(lower)) return lower;
-      // Preserve genuine all-caps abbreviations (2-3 chars, e.g. FHE, ACC, IRD)
-      if (/^[A-Z]{2,3}$/.test(word)) return word;
+      // Preserve genuine all-caps abbreviations (2-6 chars that look like court/report abbreviations)
+      if (/^[A-Z]{2,6}$/.test(word)) return word;
       return lower.charAt(0).toUpperCase() + lower.slice(1);
     })
     .join(' ');

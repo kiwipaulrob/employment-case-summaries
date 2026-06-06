@@ -1201,7 +1201,7 @@ function toTitleCaseSimple(s: string): string {
       const lower = word.toLowerCase();
       if (i === 0) return lower.charAt(0).toUpperCase() + lower.slice(1);
       if (particles.has(lower)) return lower;
-      if (/^[A-Z]{2,3}$/.test(word)) return word;
+      if (/^[A-Z]{2,6}$/.test(word)) return word;
       return lower.charAt(0).toUpperCase() + lower.slice(1);
     })
     .join(' ');
