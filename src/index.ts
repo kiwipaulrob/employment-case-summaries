@@ -35,6 +35,7 @@ import {
   hasEmailBeenSentToday, recordEmailSent, recordRunAt, getRecentCases, getCaseStatistics,
   getConfig, setConfig, addSubscriberPending, confirmSubscriber, unsubscribeByToken,
   deleteSubscriber, deleteStalePendingSubscribers, setProcessingLock, isProcessing,
+  getSubscriberByToken, updatePreferences,
 } from './db';
 import { scrapeRecentPage, enrichCasesWithDetails } from './scraper';
 import { getPdfContent, getPdfContentFromBytes, type PdfContent } from './pdf';
@@ -47,7 +48,7 @@ import {
 import {
   homePage, subscribedPage, confirmedPage, unsubscribedPage,
   alreadyUnsubscribedPage, invalidTokenPage, alreadySubscribedPage,
-  adminLoginPage, adminPage,
+  adminLoginPage, adminPage, preferencesPage,
 } from './pages';
 import { getDashboardHtml } from './dashboard';
 import { isValidEmail } from './utils';
@@ -152,7 +153,9 @@ export default {
     // GET / — Landing page
     if (request.method === 'GET' && url.pathname === '/') {
       const cases = await getRecentCases(env.DB, 20);
-      return htmlResponse(homePage(cases));
+      const showCosts = url.searchParams.get('show_costs') === '1';
+      const showConsent = url.searchParams.get('show_consent') === '1';
+      return htmlResponse(homePage(cases, undefined, undefined, showCosts, showConsent));
     }
 
     // POST /subscribe — Handle sign-up form
@@ -160,13 +163,16 @@ export default {
       const formData = await request.formData();
       const email = (formData.get('email') as string ?? '').trim().toLowerCase();
       const name = (formData.get('name') as string ?? '').trim() || null;
+      const showCosts = formData.get('show_costs') === '1';
+      const showConsent = formData.get('show_consent') === '1';
+      const preferences = JSON.stringify({ show_costs: showCosts, show_consent: showConsent });
 
       if (!email || !isValidEmail(email)) {
         const cases = await getRecentCases(env.DB, 20);
         return htmlResponse(homePage(cases, 'Please enter a valid email address.', { name: name ?? '', email }));
       }
 
-      const { token, alreadyActive } = await addSubscriberPending(env.DB, email, name);
+      const { token, alreadyActive } = await addSubscriberPending(env.DB, email, name, preferences);
 
       if (alreadyActive) {
         return htmlResponse(alreadySubscribedPage(email));
@@ -184,6 +190,28 @@ export default {
         status: 302,
         headers: { Location: `/subscribed?email=${encodeURIComponent(email)}` },
       });
+    }
+
+    // GET /preferences?token=X — Preferences page
+    if (request.method === 'GET' && url.pathname === '/preferences') {
+      const token = url.searchParams.get('token') ?? '';
+      if (!token) return htmlResponse(invalidTokenPage());
+      const sub = await getSubscriberByToken(env.DB, token);
+      if (!sub) return htmlResponse(invalidTokenPage());
+      return htmlResponse(preferencesPage(sub));
+    }
+
+    // POST /preferences — Update subscriber preferences
+    if (request.method === 'POST' && url.pathname === '/preferences') {
+      const formData = await request.formData();
+      const token = (formData.get('token') as string ?? '').trim();
+      const showCosts = formData.get('show_costs') === '1';
+      const showConsent = formData.get('show_consent') === '1';
+      if (!token) return htmlResponse(invalidTokenPage());
+      const sub = await getSubscriberByToken(env.DB, token);
+      if (!sub) return htmlResponse(invalidTokenPage());
+      await updatePreferences(env.DB, token, JSON.stringify({ show_costs: showCosts, show_consent: showConsent }));
+      return htmlResponse(preferencesPage({ ...sub, preferences: JSON.stringify({ show_costs: showCosts, show_consent: showConsent }) }, true));
     }
 
     // GET /subscribed — "Check your email" page

@@ -26,7 +26,9 @@ const OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1/chat/completions';
  *   - EC issues (what was appealed)
  *   - EC resolution (how the Court decided the appeal)
  */
-const SYSTEM_PROMPT_EC = `You are a legal analyst summarising decisions of the New Zealand Employment Court for an audience of employment law practitioners and HR professionals.
+const SYSTEM_PROMPT_EC = `CLASSIFICATION TAG (FIRST LINE ONLY): If this case is solely about fixing or apportioning costs, begin your summary with [COSTS ONLY] as the very first line. If it is an order or decision made by consent of both parties, begin with [CONSENT] as the very first line. Otherwise begin with no tag. The tag must be on its own line with no other text on that line.
+
+You are a legal analyst summarising decisions of the New Zealand Employment Court for an audience of employment law practitioners and HR professionals.
 
 CRITICAL: Completeness is your ABSOLUTE PRIMARY goal. You must capture the original ERA hearing facts, ALL findings made by the Authority, EVERY issue appealed to the Court, and the Court's resolution of each appeal issue. Omitting any issue is a failure.
 

@@ -169,14 +169,16 @@ export async function addPendingSubscriber(
   email: string,
   name: string | null,
   confirmToken: string,
-  unsubscribeToken: string
+  unsubscribeToken: string,
+  preferences?: string
 ): Promise<DbSubscriber> {
+  const prefs = preferences || JSON.stringify({ show_costs: false, show_consent: false });
   await db
     .prepare(
-      `INSERT INTO subscribers (email, name, active, confirmed, confirm_token, unsubscribe_token, created_at)
-       VALUES (?, ?, 0, 0, ?, ?, datetime('now'))`
+      `INSERT INTO subscribers (email, name, active, confirmed, confirm_token, unsubscribe_token, preferences, created_at)
+       VALUES (?, ?, 0, 0, ?, ?, ?, datetime('now'))`
     )
-    .bind(email, name, confirmToken, unsubscribeToken)
+    .bind(email, name, confirmToken, unsubscribeToken, prefs)
     .run();
   
   const subscriber = await getSubscriberByEmail(db, email);
@@ -381,6 +383,30 @@ export async function addSubscriberPending(
   
   await addPendingSubscriber(db, email, name, confirmToken, unsubscribeToken);
   return { token: confirmToken, alreadyActive: false };
+}
+
+/** Looks up a subscriber by their unsubscribe token. */
+export async function getSubscriberByToken(
+  db: D1Database,
+  token: string
+): Promise<DbSubscriber | null> {
+  const result = await db
+    .prepare('SELECT * FROM subscribers WHERE unsubscribe_token = ?')
+    .bind(token)
+    .first<DbSubscriber>();
+  return result || null;
+}
+
+/** Updates a subscriber's preferences JSON. */
+export async function updatePreferences(
+  db: D1Database,
+  token: string,
+  preferences: string
+): Promise<void> {
+  await db
+    .prepare('UPDATE subscribers SET preferences = ? WHERE unsubscribe_token = ?')
+    .bind(preferences, token)
+    .run();
 }
 
 // ─── Processing lock ──────────────────────────────────────────────────────

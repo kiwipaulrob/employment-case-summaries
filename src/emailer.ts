@@ -477,11 +477,27 @@ export async function sendDigestToAll(
     const batch = subscribers.slice(i, i + BATCH_SIZE);
     
     await Promise.all(batch.map(async (subscriber) => {
-      const unsubscribeUrl = subscriber.unsubscribe_token
-        ? `${siteUrl}/unsubscribe?token=${subscriber.unsubscribe_token}`
-        : `${siteUrl}/unsubscribe`;
+      const preferencesUrl = subscriber.unsubscribe_token
+        ? `${siteUrl}/preferences?token=${subscriber.unsubscribe_token}`
+        : `${siteUrl}/preferences`;
 
-      const { subject, html, text } = buildDigestEmail(cases, timezone, unsubscribeUrl, notice);
+      // Filter cases by subscriber preferences
+      let prefs = { show_costs: false, show_consent: false };
+      try { prefs = JSON.parse(subscriber.preferences || '{}'); } catch {}
+      const filteredCases = cases.filter(c => {
+        const firstLine = (c.summary || '').split('\n')[0].trim();
+        if (firstLine === '[COSTS ONLY]' && !prefs.show_costs) return false;
+        if (firstLine === '[CONSENT]' && !prefs.show_consent) return false;
+        return true;
+      });
+
+      // Don't send email if no cases match preferences
+      if (filteredCases.length === 0) {
+        console.log(`Skipping email to ${subscriber.email}: no matching cases for their preferences`);
+        return;
+      }
+
+      const { subject, html, text } = buildDigestEmail(filteredCases, timezone, preferencesUrl, notice);
 
       try {
         await sendEmail({

@@ -201,6 +201,12 @@ const BASE_CSS = `
   .alert-success { background: ${COLORS.successBg}; color: ${COLORS.success}; border: 1px solid #86efac; }
   .alert-error { background: ${COLORS.errorBg}; color: ${COLORS.error}; border: 1px solid #fca5a5; }
 
+  /* Filter checkboxes */
+  .filter-form { margin-bottom: 16px; display: flex; gap: 16px; flex-wrap: wrap; }
+  .filter-check { display: inline-flex; align-items: center; gap: 6px; font-size: 14px; color: #555; cursor: pointer; }
+  .filter-check input[type="checkbox"] { width: 16px; height: 16px; cursor: pointer; }
+  .pref-row { display: flex; flex-direction: column; gap: 6px; padding: 8px 0; }
+
   /* Section headings */
   .section-heading {
     font-size: 20px;
@@ -419,10 +425,25 @@ ${body}
 
 // ─── Landing page ─────────────────────────────────────────────────────────────
 
-export function homePage(cases: DbSeenCase[], error?: string, prefill?: { name?: string; email?: string }): string {
-  const caseCount = cases.filter(c => c.summary && !c.summary.startsWith('(seeded')).length;
+export function homePage(
+  cases: DbSeenCase[],
+  error?: string,
+  prefill?: { name?: string; email?: string; show_costs?: boolean; show_consent?: boolean },
+  showCosts = false,
+  showConsent = false
+): string {
+  // Filter by classification tags
+  const filtered = cases.filter(c => {
+    if (!c.summary || c.summary.startsWith('(seeded')) return false;
+    const firstLine = c.summary.split('\n')[0].trim();
+    if (firstLine === '[COSTS ONLY]' && !showCosts) return false;
+    if (firstLine === '[CONSENT]' && !showConsent) return false;
+    return true;
+  });
 
-  const caseCards = cases
+  const caseCount = filtered.length;
+
+  const caseCards = filtered
     .filter(c => c.summary && !c.summary.startsWith('(seeded'))
     .map(c => {
       const title = toTitleCase(decodeHtmlEntities(c.title));
@@ -466,8 +487,19 @@ export function homePage(cases: DbSeenCase[], error?: string, prefill?: { name?:
   const archiveSection = caseCount > 0 ? `
 <div class="section-heading">
   Recent determinations
-  <span class="section-count">${caseCount} summarised</span>
+  <span class="section-count">${caseCount} shown</span>
 </div>
+<form method="GET" action="/" class="filter-form">
+  <label class="filter-check">
+    <input type="checkbox" name="show_costs" value="1"${showCosts ? ' checked' : ''} onchange="this.form.submit()">
+    Show costs decisions
+  </label>
+  <label class="filter-check">
+    <input type="checkbox" name="show_consent" value="1"${showConsent ? ' checked' : ''} onchange="this.form.submit()">
+    Show consent orders
+  </label>
+  <noscript><button type="submit" class="btn-sm">Apply</button></noscript>
+</form>
 <p style="font-size:14px;color:${COLORS.muted};margin-bottom:20px;">
   AI-generated summaries &mdash; always refer to the full determination before acting.
 </p>
@@ -493,6 +525,16 @@ ${caseCards}` : '';
           <label for="email">Email address</label>
           <input type="email" id="email" name="email" value="${emailVal}" required autocomplete="email" placeholder="you@example.com">
           <div class="form-hint">One email per day, only when new cases are published. Unsubscribe any time.</div>
+        </div>
+        <div class="form-row pref-row">
+          <label class="filter-check">
+            <input type="checkbox" name="show_costs" value="1"${prefill?.show_costs ? ' checked' : ''}>
+            Include costs decisions
+          </label>
+          <label class="filter-check">
+            <input type="checkbox" name="show_consent" value="1"${prefill?.show_consent ? ' checked' : ''}>
+            Include consent orders
+          </label>
         </div>
         <button type="submit" class="btn-primary">Subscribe &rarr;</button>
       </form>
@@ -619,6 +661,56 @@ export function alreadySubscribedPage(email: string): string {
   </div>
 </div>`;
   return shell('Already subscribed', body);
+}
+
+// ─── Preferences page ──────────────────────────────────────────────────────────
+
+export function preferencesPage(
+  subscriber: { email: string; name: string | null; preferences: string },
+  saved?: boolean,
+  unsubscribed?: boolean
+): string {
+  let prefs = { show_costs: false, show_consent: false };
+  try { prefs = JSON.parse(subscriber.preferences); } catch {}
+  const msg = unsubscribed
+    ? '<div class="alert alert-success"><strong>✓ Unsubscribed.</strong> You will no longer receive ERA Digest emails.</div>'
+    : saved
+    ? '<div class="alert alert-success"><strong>✓ Preferences saved.</strong></div>'
+    : '';
+
+  const body = `
+<div class="page-content">
+  <div class="container">
+    <div class="center-content">
+      <h1>Your preferences</h1>
+      <p style="margin-bottom: 1.5rem; color: #666;">
+        For <strong>${escapeHtml(subscriber.email)}</strong>
+      </p>
+      ${msg}
+      <form method="POST" action="/preferences" style="text-align: left; max-width: 400px; margin: 0 auto;">
+        <input type="hidden" name="token" value="${escapeHtml(subscriber.email)}">
+        <div class="pref-row" style="margin-bottom: 1rem;">
+          <label class="filter-check" style="display: block; margin-bottom: 0.5rem;">
+            <input type="checkbox" name="show_costs" value="1"${prefs.show_costs ? ' checked' : ''}>
+            Include costs decisions
+          </label>
+          <label class="filter-check" style="display: block;">
+            <input type="checkbox" name="show_consent" value="1"${prefs.show_consent ? ' checked' : ''}>
+            Include consent orders
+          </label>
+        </div>
+        <button type="submit" class="btn-primary" style="width: 100%;">Update preferences</button>
+      </form>
+      <div class="actions" style="margin-top: 2rem;">
+        <a href="/unsubscribe?token=${encodeURIComponent(subscriber.email)}" class="btn-secondary" style="color: #c00;" onclick="return confirm('Unsubscribe from all ERA Digest emails?')">Unsubscribe from all</a>
+      </div>
+      <div class="actions" style="margin-top: 1rem;">
+        <a href="/" class="btn-secondary">Back to home</a>
+      </div>
+    </div>
+  </div>
+</div>`;
+  return shell('Preferences', body);
 }
 
 // ─── Admin login page ─────────────────────────────────────────────────────────

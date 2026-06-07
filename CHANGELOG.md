@@ -12,3 +12,11 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 - `src/index.ts`: Import `PdfContent` type; fix EC upload `pdfContent` construction; add text cleaning and filename parsing functions.
+
+### Added
+- **Case classification tags**: ERA and EC summariser prompts now tag cases as `[COSTS ONLY]` (costs-only decisions) or `[CONSENT]` (consent orders) on the first line of the summary.
+- **Landing page filters**: Two checkboxes ("Show costs decisions", "Show consent orders") let casual readers toggle visibility. Default: both hidden.
+- **Subscriber preferences**: New `preferences` column on subscribers table (JSON: `show_costs`, `show_consent`). Both default to `false` (hidden). Checkboxes on the sign-up form let new subscribers opt in.
+- **Preferences page**: Email links now go to `/preferences?token=X` where subscribers can toggle their preferences or unsubscribe entirely.
+- **Email filtering**: Per-subscriber preferences applied before sending — only matching cases are included in the digest.
+- **Migration 0008**: `ALTER TABLE subscribers ADD COLUMN preferences TEXT`. Run `npm run db:migrate` to apply.

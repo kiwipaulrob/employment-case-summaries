@@ -46,6 +46,7 @@ export interface DbSubscriber {
   confirmed: number;   // 1=confirmed email, 0=pending confirmation
   created_at: string;
   unsubscribe_token: string | null;
+  preferences: string; // JSON: {"show_costs":false,"show_consent":false}
 }
 
 export interface DbConfig {

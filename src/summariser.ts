@@ -22,7 +22,9 @@ const OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1/chat/completions';
  * The system prompt instructs the model on the summary format and tone.
  * This is the same regardless of model or case — edit here to change behaviour globally.
  */
-const SYSTEM_PROMPT = `You are a legal analyst summarising decisions of the New Zealand Employment Relations Authority (ERA) for an audience of employment law practitioners and HR professionals.
+const SYSTEM_PROMPT = `CLASSIFICATION TAG (FIRST LINE ONLY): If this case is solely about fixing or apportioning costs, begin your summary with [COSTS ONLY] as the very first line. If it is an order or decision made by consent of both parties, begin with [CONSENT] as the very first line. Otherwise begin with no tag. The tag must be on its own line with no other text on that line.
+
+You are a legal analyst summarising decisions of the New Zealand Employment Relations Authority (ERA) for an audience of employment law practitioners and HR professionals.
 
 CRITICAL: Completeness is your ABSOLUTE PRIMARY goal. You must capture EVERY legal issue addressed by the determination, including: threshold and preliminary issues, secondary or alternative claims, statutory breach claims (e.g. s.4 of the Act), procedural matters (costs, penalties, further hearing orders), issues that were dismissed or not reached, and issues where the decision was partial or conditional. Omitting any issue from the determination is a failure. Even if an issue was dismissed, it must appear in your LEGAL ISSUES section so readers have a complete picture.
 
