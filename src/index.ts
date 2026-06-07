@@ -1251,63 +1251,99 @@ function toTitleCaseSimple(s: string): string {
  * Extract a proper case title from the LLM summary.
  * Uses the PARTIES section which is more accurate than filename parsing.
  * Handles both ERA format (Party v Party) and EC format (Appellant/Respondent).
- * Appends citation from the category field if available.
+ * Applies legal naming conventions: 1 party = name, 2 = "& Anor", 3+ = "& Ors".
  */
 function extractTitleFromSummary(summary: string, citation?: string | null): string | null {
   const lines = summary.split('\n');
-  let partiesLine: string | null = null;
-  let inParties = false;
+  let leftNames: string[] = [];
+  let rightNames: string[] = [];
+  let found = false;
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i].trim();
+    if (line !== 'PARTIES') continue;
 
-    // EC format: PARTIES section with Appellant:/Respondent:
-    if (line === 'PARTIES') {
-      inParties = true;
-      // Look at next lines for Appellant:/Respondent: pattern
-      for (let j = i + 1; j < Math.min(i + 6, lines.length); j++) {
-        const next = lines[j].trim();
-        if (next === '' || next.match(/^[A-Z ]{4,}:/) || next.match(/^---/)) break;
-        if (next.match(/^Appellant:/i) || next.match(/^Respondent:/i)) {
-          // EC format — collect both
-          let appellant = '';
-          let respondent = '';
-          for (let k = j; k < Math.min(j + 4, lines.length); k++) {
-            const kl = lines[k].trim();
-            if (kl.match(/^Appellant:/i)) {
-              appellant = kl.replace(/^Appellant:\s*/i, '').replace(/\(.*?\)/g, '').trim();
-            } else if (kl.match(/^Respondent:/i)) {
-              respondent = kl.replace(/^Respondent:\s*/i, '').replace(/\(.*?\)/g, '').trim();
-            } else if (kl === '' || kl.match(/^[A-Z ]{4,}:/)) break;
-          }
-          if (appellant && respondent) {
-            partiesLine = appellant + ' v ' + respondent;
-          }
-          break;
+    // Look ahead for EC format (Appellant:/Respondent: labels)
+    const ecAppellants: string[] = [];
+    const ecRespondents: string[] = [];
+    let isEc = false;
+
+    for (let j = i + 1; j < Math.min(i + 10, lines.length); j++) {
+      const next = lines[j].trim();
+      if (next === '' || next.match(/^---/)) continue;
+      if (next.match(/^[A-Z &]{4,}:/) && !next.match(/^Appellant:/i) && !next.match(/^Respondent:/i)) break;
+
+      if (next.match(/^Appellant:/i)) {
+        isEc = true;
+        const name = next.replace(/^Appellant:\s*/i, '').replace(/\(.*?\)/g, '').trim();
+        if (name) ecAppellants.push(name);
+      } else if (next.match(/^Respondent:/i)) {
+        isEc = true;
+        const name = next.replace(/^Respondent:\s*/i, '').replace(/\(.*?\)/g, '').trim();
+        if (name) ecRespondents.push(name);
+      } else if (isEc && next && !next.match(/^[A-Z ]{4,}:/)) {
+        // Continuation of previous party (multi-line name)
+        const cleaned = next.replace(/\(.*?\)/g, '').trim();
+        if (ecRespondents.length > 0) {
+          ecRespondents[ecRespondents.length - 1] += ' ' + cleaned;
+        } else if (ecAppellants.length > 0) {
+          ecAppellants[ecAppellants.length - 1] += ' ' + cleaned;
         }
+      } else if (isEc) {
+        break;
       }
-      if (partiesLine) break;
-      continue;
     }
 
-    // ERA format: right after PARTIES, the next non-empty line is "Party v Other"
-    if (inParties && line && !line.match(/^[A-Z ]{4,}:/)) {
-      // This should be the "Party v Other" line
-      const vMatch = line.match(/(.+?)\s+v(?:s)?\.?\s+(.+)/i);
-      if (vMatch) {
-        partiesLine = vMatch[1].trim() + ' v ' + vMatch[2].trim();
-      }
+    if (isEc && (ecAppellants.length > 0 || ecRespondents.length > 0)) {
+      leftNames = ecAppellants;
+      rightNames = ecRespondents;
+      found = true;
       break;
     }
+
+    // ERA format: line after PARTIES is "Party v Other"
+    for (let j = i + 1; j < Math.min(i + 4, lines.length); j++) {
+      const eraLine = lines[j].trim();
+      if (!eraLine || eraLine.match(/^[A-Z ]{4,}:/)) continue;
+
+      const vMatch = eraLine.match(/^(.+?)\s+v(?:s)?\.?\s+(.+)/i);
+      if (vMatch) {
+        // Split each side by comma, 'and', '&', or semicolon
+        const splitParties = (s: string): string[] =>
+          s.split(/\s*,\s*|\s+and\s+|\s*;\s*/).map(x => x.trim().replace(/\(.*?\)/g, '').trim()).filter(Boolean);
+
+        leftNames = splitParties(vMatch[1].trim());
+        rightNames = splitParties(vMatch[2].trim());
+        found = true;
+        break;
+      }
+    }
+    if (found) break;
   }
 
-  if (!partiesLine) return null;
+  if (!found || (leftNames.length === 0 && rightNames.length === 0)) return null;
 
-  // Append citation if available
-  if (citation && !partiesLine.includes(citation)) {
-    return partiesLine + ' ' + citation;
+  // Apply & Anor / & Ors legal naming
+  const formatSide = (names: string[]): string => {
+    if (names.length === 0) return '';
+    const first = names[0];
+    if (names.length === 2) return first + ' & Anor';
+    if (names.length > 2) return first + ' & Ors';
+    return first;
+  };
+
+  const left = formatSide(leftNames);
+  const right = formatSide(rightNames);
+
+  let result = left;
+  if (right) result += ' v ' + right;
+
+  // Append citation if available and not already in the title
+  if (citation && !result.includes(citation)) {
+    result += ' ' + citation;
   }
-  return partiesLine;
+
+  return result;
 }
 
 function jsonResponse(data: unknown, status = 200): Response {
