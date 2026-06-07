@@ -609,18 +609,6 @@ export function getDashboardHtml(status: {
           }
         }
       }
-        
-        // Reset form
-        e.target.reset();
-        document.getElementById('file-name').textContent = 'None';
-        
-        setTimeout(() => {
-          status.classList.remove('show');
-        }, 5000);
-      } catch (err) {
-        status.className = 'upload-status show alert alert-error';
-        status.textContent = '❌ Error: ' + err.message;
-      }
     });
 
     document.getElementById('digest-form').addEventListener('submit', async (e) => {
