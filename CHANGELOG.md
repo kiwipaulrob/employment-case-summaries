@@ -12,6 +12,7 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 - `src/index.ts`: Import `PdfContent` type; fix EC upload `pdfContent` construction; add text cleaning and filename parsing functions.
+- **Case titles now derived from LLM summary PARTIES section** — far more accurate than filename parsing. Falls back to filename if extraction fails. Applied to both EC uploads and ERA daily pipeline.
 
 ### Added
 - **Case classification tags**: ERA and EC summariser prompts now tag cases as `[COSTS ONLY]` (costs-only decisions) or `[CONSENT]` (consent orders) on the first line of the summary.

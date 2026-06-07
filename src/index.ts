@@ -498,6 +498,10 @@ export default {
           }, 500);
         }
 
+        // Override title with parties extracted from LLM summary (more accurate)
+        const summaryTitle = extractTitleFromSummary(summaryResult.summary, caseListing.category);
+        if (summaryTitle) caseListing.title = summaryTitle;
+
         // Store in D1
         const now = new Date().toISOString();
         await env.DB.prepare(`
@@ -572,6 +576,9 @@ export default {
         if (!summaryResult.success) {
           return jsonResponse({ error: `LLM summarisation failed: ${summaryResult.error}` }, 500);
         }
+        // Override title with parties from LLM summary
+        const summaryTitle = extractTitleFromSummary(summaryResult.summary, caseListing.category);
+        if (summaryTitle) caseListing.title = summaryTitle;
         const now = new Date().toISOString();
         // Use extracted judge name if no member was provided
         const memberField = body.member || summaryResult.judgeName || null;
@@ -1054,8 +1061,11 @@ async function runDigest(env: Env, force = false, limit = 3): Promise<RunResult>
       // Failed cases are skipped and will be retried on next run
       if (success) {
         result.summarised++;
+        // Extract better title from LLM summary if available
+        const betterTitle = extractTitleFromSummary(summary, c.category);
         const processedCase: ProcessedCase = {
           ...c,
+          title: betterTitle || c.title,
           summary,
           processedAt: new Date().toISOString(),
           source: 'ERA',
@@ -1235,6 +1245,69 @@ function toTitleCaseSimple(s: string): string {
     })
     .join(' ')
     .replace(/\bAnor\b/g, '& Anor');
+}
+
+/**
+ * Extract a proper case title from the LLM summary.
+ * Uses the PARTIES section which is more accurate than filename parsing.
+ * Handles both ERA format (Party v Party) and EC format (Appellant/Respondent).
+ * Appends citation from the category field if available.
+ */
+function extractTitleFromSummary(summary: string, citation?: string | null): string | null {
+  const lines = summary.split('\n');
+  let partiesLine: string | null = null;
+  let inParties = false;
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trim();
+
+    // EC format: PARTIES section with Appellant:/Respondent:
+    if (line === 'PARTIES') {
+      inParties = true;
+      // Look at next lines for Appellant:/Respondent: pattern
+      for (let j = i + 1; j < Math.min(i + 6, lines.length); j++) {
+        const next = lines[j].trim();
+        if (next === '' || next.match(/^[A-Z ]{4,}:/) || next.match(/^---/)) break;
+        if (next.match(/^Appellant:/i) || next.match(/^Respondent:/i)) {
+          // EC format — collect both
+          let appellant = '';
+          let respondent = '';
+          for (let k = j; k < Math.min(j + 4, lines.length); k++) {
+            const kl = lines[k].trim();
+            if (kl.match(/^Appellant:/i)) {
+              appellant = kl.replace(/^Appellant:\s*/i, '').replace(/\(.*?\)/g, '').trim();
+            } else if (kl.match(/^Respondent:/i)) {
+              respondent = kl.replace(/^Respondent:\s*/i, '').replace(/\(.*?\)/g, '').trim();
+            } else if (kl === '' || kl.match(/^[A-Z ]{4,}:/)) break;
+          }
+          if (appellant && respondent) {
+            partiesLine = appellant + ' v ' + respondent;
+          }
+          break;
+        }
+      }
+      if (partiesLine) break;
+      continue;
+    }
+
+    // ERA format: right after PARTIES, the next non-empty line is "Party v Other"
+    if (inParties && line && !line.match(/^[A-Z ]{4,}:/)) {
+      // This should be the "Party v Other" line
+      const vMatch = line.match(/(.+?)\s+v(?:s)?\.?\s+(.+)/i);
+      if (vMatch) {
+        partiesLine = vMatch[1].trim() + ' v ' + vMatch[2].trim();
+      }
+      break;
+    }
+  }
+
+  if (!partiesLine) return null;
+
+  // Append citation if available
+  if (citation && !partiesLine.includes(citation)) {
+    return partiesLine + ' ' + citation;
+  }
+  return partiesLine;
 }
 
 function jsonResponse(data: unknown, status = 200): Response {
