@@ -30,7 +30,7 @@ export function toTitleCase(s: string): string {
       return lower.charAt(0).toUpperCase() + lower.slice(1);
     })
     .join(' ')
-    .replace(/\bAnor\b/g, '& Anor');
+    .replace(/(?<!& )\bAnor\b/g, '& Anor');
 }
 
 /**
