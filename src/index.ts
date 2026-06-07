@@ -1339,7 +1339,8 @@ function extractTitleFromSummary(summary: string, citation?: string | null): str
   if (right) result += ' v ' + right;
 
   // Append citation if available and not already in the title
-  if (citation && !result.includes(citation)) {
+  const citationPattern = /^\[\d{4}\]\s+NZ/;
+  if (citation && citationPattern.test(citation) && !result.includes(citation)) {
     result += ' ' + citation;
   }
 
