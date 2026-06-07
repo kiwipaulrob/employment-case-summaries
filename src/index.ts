@@ -1202,9 +1202,11 @@ function toTitleCaseSimple(s: string): string {
       if (i === 0) return lower.charAt(0).toUpperCase() + lower.slice(1);
       if (particles.has(lower)) return lower;
       if (/^[A-Z]{2,6}$/.test(word)) return word;
+      if (/^[A-Z]{2,}[a-z]/.test(word)) return word;
       return lower.charAt(0).toUpperCase() + lower.slice(1);
     })
-    .join(' ');
+    .join(' ')
+    .replace(/\bAnor\b/g, '& Anor');
 }
 
 function jsonResponse(data: unknown, status = 200): Response {

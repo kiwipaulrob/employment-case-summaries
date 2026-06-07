@@ -23,11 +23,14 @@ export function toTitleCase(s: string): string {
       if (i === 0) return lower.charAt(0).toUpperCase() + lower.slice(1);
       // Non-first particles always go lowercase (e.g. "THE" → "the", "OF" → "of")
       if (particles.has(lower)) return lower;
-      // Preserve genuine all-caps abbreviations (2-6 chars that look like court/report abbreviations)
+      // Preserve genuine all-caps abbreviations (2-6 chars, e.g. FHE, ACC, IRD, NZERA)
       if (/^[A-Z]{2,6}$/.test(word)) return word;
+      // Preserve PascalCase abbreviations (e.g. NZEmpC, NZEnvC, NZBORA)
+      if (/^[A-Z]{2,}[a-z]/.test(word)) return word;
       return lower.charAt(0).toUpperCase() + lower.slice(1);
     })
-    .join(' ');
+    .join(' ')
+    .replace(/\bAnor\b/g, '& Anor');
 }
 
 /**
