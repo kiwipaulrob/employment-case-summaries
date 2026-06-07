@@ -381,7 +381,7 @@ export function getDashboardHtml(status: {
             <small style="display: block; margin-top: 0.25rem; color: #888;">PDF URL is auto-derived from the filename (employmentcourt.govt.nz/assets/Documents/Decisions/…)</small>
           </div>
 
-          <button type="submit" class="button" id="upload-btn">Upload & Summarise</button>
+          <button type="submit" class="button">Upload & Summarise</button>
           <div id="upload-status" class="upload-status"></div>
         </form>
       </div>
@@ -538,85 +538,89 @@ export function getDashboardHtml(status: {
       e.preventDefault();
       const fileInput = document.getElementById('pdf-input');
       const status = document.getElementById('upload-status');
-      const btn = document.getElementById('upload-btn');
       
       if (!fileInput.files.length) {
         status.className = 'upload-status show alert alert-error';
-        status.textContent = 'Error: No file selected';
+        status.textContent = '❌ Error: No file selected';
         return;
       }
 
-      btn.disabled = true;
-      btn.textContent = 'Uploading...';
-      
-      const files = Array.from(fileInput.files);
-      const results = [];
-      let allOk = true;
-      
-      for (let i = 0; i < files.length; i++) {
-        const file = files[i];
+      const totalFiles = fileInput.files.length;
+      for (let f = 0; f < totalFiles; f++) {
+        const file = fileInput.files[f];
         const filename = file.name;
-        
+        let lastError = null;
+      
         try {
           status.className = 'upload-status show alert alert-info';
-          status.textContent = '[' + (i+1) + '/' + files.length + '] Reading ' + filename + '...';
+          status.textContent = '⏳ [' + (f+1) + '/' + totalFiles + '] Reading ' + filename + '...';
 
-          const arrayBuffer = await new Promise(function(resolve, reject) {
-            var reader = new FileReader();
-            reader.onload = function() { resolve(reader.result); };
+          // Read file as ArrayBuffer
+          const arrayBuffer = await new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(reader.result);
             reader.onerror = reject;
             reader.readAsArrayBuffer(file);
           });
 
-          var url = new URL('/admin/upload-ec-case', window.location.origin);
+          // Determine endpoint based on file type
+          const url = new URL('/admin/upload-ec-case', window.location.origin);
           url.searchParams.set('filename', filename);
 
-          status.textContent = '[' + (i+1) + '/' + files.length + '] Summarising ' + filename + '...';
+          status.textContent = '⏳ [' + (f+1) + '/' + totalFiles + '] Summarising ' + filename + '...';
 
-          var response = await fetch(url.toString(), {
+          const response = await fetch(url.toString(), {
             method: 'POST',
             body: arrayBuffer,
-            headers: { 'Content-Type': 'application/pdf' },
+            headers: {
+              'Content-Type': 'application/pdf',
+            },
             credentials: 'same-origin'
           });
 
           if (!response.ok) {
-            var error = await response.text();
-            results.push('FAIL: ' + filename + ' - ' + error);
-            allOk = false;
-          } else {
-            results.push('OK: ' + filename);
+            const error = await response.text();
+            throw new Error(error || 'Upload failed');
+          }
+
+          const result = await response.json();
+          if (f === totalFiles - 1) {
+            status.className = 'upload-status show alert alert-success';
+            status.innerHTML = '<strong>✓ ' + (totalFiles > 1 ? filename : 'Case') + ' uploaded successfully!</strong><br>The case has been summarised and stored in the database.';
+          }
+          
+          if (totalFiles > 1) {
+            status.className = 'upload-status show alert alert-info';
           }
         } catch (err) {
-          results.push('FAIL: ' + filename + ' - ' + String(err.message || err));
-          allOk = false;
+          lastError = err;
+          status.className = 'upload-status show alert alert-error';
+          status.textContent = '❌ [' + (f+1) + '/' + totalFiles + '] ' + filename + ': ' + err.message;
+        }
+        
+        // Final status after all files
+        if (f === totalFiles - 1) {
+          if (lastError) {
+            status.className = 'upload-status show alert alert-error';
+            status.textContent = '❌ Error: ' + lastError.message;
+          } else if (totalFiles > 1) {
+            status.className = 'upload-status show alert alert-success';
+            status.innerHTML = '<strong>✓ All ' + totalFiles + ' cases uploaded successfully!</strong>';
+          }
         }
       }
-
-      btn.disabled = false;
-      btn.textContent = 'Upload & Summarise';
-      
-      var succeeded = 0;
-      var failed = 0;
-      for (var r = 0; r < results.length; r++) {
-        if (results[r].indexOf('OK:') === 0) succeeded++;
-        else failed++;
+        
+        // Reset form
+        e.target.reset();
+        document.getElementById('file-name').textContent = 'None';
+        
+        setTimeout(() => {
+          status.classList.remove('show');
+        }, 5000);
+      } catch (err) {
+        status.className = 'upload-status show alert alert-error';
+        status.textContent = '❌ Error: ' + err.message;
       }
-      
-      if (files.length === 1 && allOk) {
-        status.className = 'upload-status show alert alert-success';
-        status.innerHTML = 'Case uploaded successfully!<br>The case has been summarised and stored in the database.';
-      } else {
-        status.className = 'upload-status show alert ' + (failed === 0 ? 'alert-success' : 'alert-warning');
-        status.innerHTML = succeeded + '/' + files.length + ' cases processed' +
-          (failed > 0 ? ' (' + failed + ' failed)' : '') +
-          '<br><pre style="margin-top:8px;font-size:13px;white-space:pre-wrap;">' +
-          results.join('\n') +
-          '</pre>';
-      }
-      
-      fileInput.value = '';
-      document.getElementById('file-name').textContent = 'None';
     });
 
     document.getElementById('digest-form').addEventListener('submit', async (e) => {
