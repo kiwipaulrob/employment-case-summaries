@@ -542,36 +542,38 @@ export function getDashboardHtml(status: {
       
       if (!fileInput.files.length) {
         status.className = 'upload-status show alert alert-error';
-        status.textContent = '❌ Error: No file selected';
+        status.textContent = 'Error: No file selected';
         return;
       }
 
-      const files = Array.from(fileInput.files);
       btn.disabled = true;
       btn.textContent = 'Uploading...';
       
+      const files = Array.from(fileInput.files);
       const results = [];
+      let allOk = true;
+      
       for (let i = 0; i < files.length; i++) {
         const file = files[i];
         const filename = file.name;
         
         try {
           status.className = 'upload-status show alert alert-info';
-          status.textContent = '\u23F3 [' + (i+1) + '/' + files.length + '] Reading ' + filename + '...';
+          status.textContent = '[' + (i+1) + '/' + files.length + '] Reading ' + filename + '...';
 
-          const arrayBuffer = await new Promise((resolve, reject) => {
-            const reader = new FileReader();
-            reader.onload = () => resolve(reader.result);
+          const arrayBuffer = await new Promise(function(resolve, reject) {
+            var reader = new FileReader();
+            reader.onload = function() { resolve(reader.result); };
             reader.onerror = reject;
             reader.readAsArrayBuffer(file);
           });
 
-          const url = new URL('/admin/upload-ec-case', window.location.origin);
+          var url = new URL('/admin/upload-ec-case', window.location.origin);
           url.searchParams.set('filename', filename);
 
-          status.textContent = '\u23F3 [' + (i+1) + '/' + files.length + '] Uploading and summarising ' + filename + '...';
+          status.textContent = '[' + (i+1) + '/' + files.length + '] Summarising ' + filename + '...';
 
-          const response = await fetch(url.toString(), {
+          var response = await fetch(url.toString(), {
             method: 'POST',
             body: arrayBuffer,
             headers: { 'Content-Type': 'application/pdf' },
@@ -579,36 +581,40 @@ export function getDashboardHtml(status: {
           });
 
           if (!response.ok) {
-            const error = await response.text();
-            results.push('\u274C ' + filename + ': ' + error);
+            var error = await response.text();
+            results.push('FAIL: ' + filename + ' - ' + error);
+            allOk = false;
           } else {
-            results.push('\u2705 ' + filename + ': Uploaded successfully');
+            results.push('OK: ' + filename);
           }
         } catch (err) {
-          results.push('\u274C ' + filename + ': ' + (err.message || err));
+          results.push('FAIL: ' + filename + ' - ' + String(err.message || err));
+          allOk = false;
         }
       }
 
       btn.disabled = false;
       btn.textContent = 'Upload & Summarise';
       
-      var succeeded = results.filter(function(r) { return r.indexOf('\u2705') === 0; }).length;
-      var failed = results.filter(function(r) { return r.indexOf('\u274C') === 0; }).length;
+      var succeeded = 0;
+      var failed = 0;
+      for (var r = 0; r < results.length; r++) {
+        if (results[r].indexOf('OK:') === 0) succeeded++;
+        else failed++;
+      }
       
-      if (files.length === 1 && succeeded === 1) {
-        // Single file success — show the nice message
+      if (files.length === 1 && allOk) {
         status.className = 'upload-status show alert alert-success';
-        status.innerHTML = '<strong>✓ Case uploaded successfully!</strong><br>The case has been summarised and stored in the database.';
+        status.innerHTML = 'Case uploaded successfully!<br>The case has been summarised and stored in the database.';
       } else {
         status.className = 'upload-status show alert ' + (failed === 0 ? 'alert-success' : 'alert-warning');
-        status.innerHTML = '<strong>' + succeeded + '/' + files.length + ' cases processed</strong>' +
+        status.innerHTML = succeeded + '/' + files.length + ' cases processed' +
           (failed > 0 ? ' (' + failed + ' failed)' : '') +
           '<br><pre style="margin-top:8px;font-size:13px;white-space:pre-wrap;">' +
           results.join('\n') +
           '</pre>';
       }
       
-      // Reset file input so user can re-upload
       fileInput.value = '';
       document.getElementById('file-name').textContent = 'None';
     });
