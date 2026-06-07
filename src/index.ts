@@ -1301,23 +1301,58 @@ function extractTitleFromSummary(summary: string, citation?: string | null): str
       break;
     }
 
-    // ERA format: line after PARTIES is "Party v Other"
-    for (let j = i + 1; j < Math.min(i + 4, lines.length); j++) {
+    // ERA format: look for Applicant:/Respondent: labels first
+    let applicantName = '';
+    let respondentName = '';
+
+    for (let j = i + 1; j < Math.min(i + 6, lines.length); j++) {
       const eraLine = lines[j].trim();
-      if (!eraLine || eraLine.match(/^[A-Z ]{4,}:/)) continue;
+      if (!eraLine || eraLine.match(/^---/)) continue;
 
-      const vMatch = eraLine.match(/^(.+?)\s+v(?:s)?\.?\s+(.+)/i);
-      if (vMatch) {
-        // Split each side by comma, 'and', '&', or semicolon
-        const splitParties = (s: string): string[] =>
-          s.split(/\s*,\s*|\s+and\s+|\s*;\s*/).map(x => x.trim().replace(/\(.*?\)/g, '').trim()).filter(Boolean);
+      const appMatch = eraLine.match(/^Applicant:\s*(.+)/i);
+      if (appMatch) {
+        applicantName = appMatch[1].replace(/\(.*?\)/g, '').trim();
+        continue;
+      }
 
-        leftNames = splitParties(vMatch[1].trim());
-        rightNames = splitParties(vMatch[2].trim());
-        found = true;
-        break;
+      const respMatch = eraLine.match(/^Respondent:\s*(.+)/i);
+      if (respMatch) {
+        respondentName = respMatch[1].replace(/\(.*?\)/g, '').trim();
+        continue;
+      }
+
+      // Stop if we hit another section label
+      if (eraLine.match(/^[A-Z &]{4,}:/)) break;
+    }
+
+    if (applicantName && respondentName) {
+      const splitParties = (s: string): string[] =>
+        s.split(/\s*,\s*|\s+and\s+/i).map(x => x.trim()).filter(Boolean);
+
+      leftNames = splitParties(applicantName);
+      rightNames = splitParties(respondentName);
+      found = true;
+    }
+
+    // Fallback: try "Party v Other" pattern if no labels matched
+    if (!found) {
+      for (let j = i + 1; j < Math.min(i + 4, lines.length); j++) {
+        const vLine = lines[j].trim();
+        if (!vLine || vLine.match(/^[A-Z ]{4,}:/)) continue;
+
+        const vMatch = vLine.match(/^(.+?)\s+v(?:s)?\.?\s+(.+)/i);
+        if (vMatch) {
+          const splitParties = (s: string): string[] =>
+            s.split(/\s*,\s*|\s+and\s+|\s*;\s*/).map(x => x.trim().replace(/\(.*?\)/g, '').trim()).filter(Boolean);
+
+          leftNames = splitParties(vMatch[1].trim());
+          rightNames = splitParties(vMatch[2].trim());
+          found = true;
+          break;
+        }
       }
     }
+
     if (found) break;
   }
 
