@@ -756,8 +756,6 @@ export default {
       for (const c of newCases) {
         await markCaseSeen(env.DB, {
           ...c,
-          pdfUrl: undefined as any,
-          date: '',
           summary: '(seeded — not processed)',
           processedAt: new Date().toISOString(),
           source: 'ERA',
