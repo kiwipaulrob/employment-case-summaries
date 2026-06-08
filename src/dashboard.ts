@@ -488,6 +488,45 @@ export function getDashboardHtml(status: {
         </div>
       </div>
     </div>
+    <div id="era-backfill" class="tab-content">
+      <div class="card">
+        <div class="card-title">ERA Backfill — Multi-Page Scrape</div>
+        <p style="color: #666; margin-bottom: 1.5rem;">Scrape the ERA listing pages to find and summarise cases not yet in the database. No email is sent — purely for populating the archive.</p>
+
+        <div>
+          <div class="form-group">
+            <label for="backfill-pages">Number of pages to scrape</label>
+            <input type="number" id="backfill-pages" name="pages" min="1" max="10" value="3">
+            <small>Each page covers ~10 cases. 3 pages = approximately the last 10 days of ERA determinations.</small>
+          </div>
+
+          <div style="margin-top: 1.5rem;">
+            <button type="button" class="button" onclick="backfillEraPages()">Backfill Now</button>
+          </div>
+
+          <div id="backfill-status" style="margin-top: 1rem;"></div>
+        </div>
+      </div>
+
+      <div class="card" style="margin-top: 1.5rem;">
+        <div class="card-title">ERA Backfill — Single Case by URL</div>
+        <p style="color: #666; margin-bottom: 1.5rem;">Process a single ERA case by pasting its PDF URL directly. Useful for older cases no longer on the listing page.</p>
+
+        <div>
+          <div class="form-group">
+            <label for="era-pdf-url">ERA PDF URL</label>
+            <input type="text" id="era-pdf-url" name="pdfUrl" placeholder="https://determinations.era.govt.nz/assets/Uploads/...pdf" style="width: 100%;">
+            <small>Must be a valid ERA determination PDF URL.</small>
+          </div>
+
+          <div style="margin-top: 1.5rem;">
+            <button type="button" class="button" onclick="processEraUrl()">Process Case</button>
+          </div>
+
+          <div id="era-url-status" style="margin-top: 1rem;"></div>
+        </div>
+      </div>
+    </div>
   </div>
 
   <script>
