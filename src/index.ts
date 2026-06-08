@@ -844,12 +844,16 @@ export default {
           ? `[${citMatch[1]}] ${citMatch[2].toUpperCase()} ${citMatch[3]}`
           : null;
 
-        // Check if already in seen_cases
-        const existing = await env.DB.prepare(
-          "SELECT 1 FROM seen_cases WHERE source = 'ERA' AND pdf_filename = ?"
-        ).bind(pdfFilename).first();
+        // Check if already in seen_cases — allow overwriting placeholder summaries
+        const existingRow = await env.DB.prepare(
+          "SELECT summary FROM seen_cases WHERE source = 'ERA' AND pdf_filename = ?"
+        ).bind(pdfFilename).first<{summary: string}>();
 
-        if (existing) {
+        const isPlaceholder = existingRow
+          ? (existingRow.summary ?? '').startsWith('(seeded')
+          : false;
+
+        if (existingRow && !isPlaceholder) {
           return jsonResponse({
             success: false,
             already_exists: true,
@@ -893,7 +897,22 @@ export default {
           source: 'ERA',
         };
 
-        await markCaseSeen(env.DB, processedCase, 'ERA');
+        if (isPlaceholder) {
+          // Overwrite the existing placeholder row with the real summary
+          await env.DB.prepare(
+            `UPDATE seen_cases SET title=?, summary=?, member=?, category=?, processed_at=?
+             WHERE source='ERA' AND pdf_filename=?`
+          ).bind(
+            processedCase.title,
+            processedCase.summary,
+            processedCase.member ?? null,
+            processedCase.category ?? null,
+            processedCase.processedAt,
+            pdfFilename
+          ).run();
+        } else {
+          await markCaseSeen(env.DB, processedCase, 'ERA');
+        }
         console.log(`ERA URL Upload: stored ${caseId} (${betterTitle || caseListing.title})`);
 
         return jsonResponse({
