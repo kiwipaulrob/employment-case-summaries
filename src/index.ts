@@ -1281,7 +1281,7 @@ function extractTitleFromSummary(summary: string, citation?: string | null): str
         isEc = true;
         const name = next.replace(/^Respondent:\s*/i, '').replace(/\(.*?\)/g, '').trim();
         if (name) ecRespondents.push(name);
-      } else if (isEc && next && !next.match(/^[A-Z ]{4,}:/)) {
+      } else if (isEc && next && !next.match(/^[A-Z ]{4,}:/) && !next.match(/^[A-Z &]{4,}$/)) {
         // Continuation of previous party (multi-line name)
         const cleaned = next.replace(/\(.*?\)/g, '').trim();
         if (ecRespondents.length > 0) {
