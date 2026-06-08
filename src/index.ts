@@ -1512,8 +1512,7 @@ function extractTitleFromSummary(summary: string, citation?: string | null): str
         isEc = true;
         const name = next.replace(/^Appellant:\s*/i, '').replace(/\(.*?\)/g, '').trim();
         if (name) ecAppellants.push(name);
-      } else if (next.match(/^Respondent:/i)) {
-        isEc = true;
+      } else if (isEc && next.match(/^Respondent:/i)) {
         const name = next.replace(/^Respondent:\s*/i, '').replace(/\(.*?\)/g, '').trim();
         if (name) ecRespondents.push(name);
       } else if (isEc && next && !next.match(/^[A-Z ]{4,}:/) && !next.match(/^[A-Z &]{4,}$/)) {
