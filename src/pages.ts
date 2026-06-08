@@ -430,20 +430,14 @@ export function homePage(
   error?: string,
   prefill?: { name?: string; email?: string; show_costs?: boolean; show_consent?: boolean },
   showCosts = false,
-  showConsent = false
+  showConsent = false,
+  page = 1,
+  totalCount = 0
 ): string {
-  // Filter by classification tags
-  const filtered = cases.filter(c => {
-    if (!c.summary || c.summary.startsWith('(seeded')) return false;
-    const firstLine = c.summary.split('\n')[0].trim();
-    if (firstLine === '[COSTS ONLY]' && !showCosts) return false;
-    if (firstLine === '[CONSENT]' && !showConsent) return false;
-    return true;
-  });
+  // Cases are pre-filtered server-side; just render them all
+  const caseCount = cases.length;
 
-  const caseCount = filtered.length;
-
-  const caseCards = filtered
+  const caseCards = cases
     .filter(c => c.summary && !c.summary.startsWith('(seeded'))
     .map(c => {
       const title = toTitleCase(decodeHtmlEntities(c.title));
@@ -484,10 +478,29 @@ export function homePage(
   const nameVal = prefill?.name ? escapeHtml(prefill.name) : '';
   const emailVal = prefill?.email ? escapeHtml(prefill.email) : '';
 
-  const archiveSection = caseCount > 0 ? `
+  // Pagination calculations
+  const PAGE_SIZE = 20;
+  const totalPages = totalCount > 0 ? Math.ceil(totalCount / PAGE_SIZE) : 1;
+  const filterParams = (showCosts ? '&show_costs=1' : '') + (showConsent ? '&show_consent=1' : '');
+  const prevPage = page > 1 ? page - 1 : null;
+  const nextPage = page < totalPages ? page + 1 : null;
+  const startNum = totalCount > 0 ? (page - 1) * PAGE_SIZE + 1 : 0;
+  const endNum = Math.min(page * PAGE_SIZE, totalCount);
+
+  const paginationNav = totalPages > 1 ? `
+<div style="display:flex;align-items:center;justify-content:space-between;margin-top:24px;padding-top:16px;border-top:1px solid ${COLORS.border};flex-wrap:wrap;gap:10px;">
+  <span style="font-size:13px;color:${COLORS.muted};">Showing ${startNum}–${endNum} of ${totalCount} determinations</span>
+  <div style="display:flex;gap:8px;">
+    ${prevPage ? `<a href="/?page=${prevPage}${filterParams}" class="btn-secondary" style="font-size:13px;padding:7px 16px;">← Previous</a>` : '<span style="font-size:13px;color:#ccc;padding:7px 16px;border:1px solid #eee;border-radius:8px;">← Previous</span>'}
+    <span style="font-size:13px;color:${COLORS.muted};padding:7px 4px;">Page ${page} of ${totalPages}</span>
+    ${nextPage ? `<a href="/?page=${nextPage}${filterParams}" class="btn-secondary" style="font-size:13px;padding:7px 16px;">Next →</a>` : '<span style="font-size:13px;color:#ccc;padding:7px 16px;border:1px solid #eee;border-radius:8px;">Next →</span>'}
+  </div>
+</div>` : '';
+
+  const archiveSection = totalCount > 0 ? `
 <div class="section-heading">
   Recent determinations
-  <span class="section-count">${caseCount} shown</span>
+  <span class="section-count">${totalCount} total</span>
 </div>
 <form method="GET" action="/" class="filter-form">
   <label class="filter-check">
@@ -503,7 +516,8 @@ export function homePage(
 <p style="font-size:14px;color:${COLORS.muted};margin-bottom:20px;">
   AI-generated summaries &mdash; always refer to the full determination before acting.
 </p>
-${caseCards}` : '';
+${caseCards}
+${paginationNav}` : '';
 
   const body = `
 <div class="page-content">

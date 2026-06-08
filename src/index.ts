@@ -36,7 +36,7 @@ import type { D1Database } from '@cloudflare/workers-types';
 import type { Env, ProcessedCase } from './types';
 import {
   filterNewCases, markCaseSeen, getActiveSubscribers, getAllSubscribers,
-  hasEmailBeenSentToday, recordEmailSent, recordRunAt, getRecentCases, getCaseStatistics,
+  hasEmailBeenSentToday, recordEmailSent, recordRunAt, getRecentCases, getRecentCasesPaged, getCaseCountPaged, getCaseStatistics,
   getConfig, setConfig, addSubscriberPending, confirmSubscriber, unsubscribeByToken,
   deleteSubscriber, deleteStalePendingSubscribers, setProcessingLock, isProcessing,
   getSubscriberByToken, updatePreferences,
@@ -154,12 +154,18 @@ export default {
     // PUBLIC ROUTES (no auth required)
     // ══════════════════════════════════════════════════════════════════════════
 
-    // GET / — Landing page
+    // GET / — Landing page (paginated)
     if (request.method === 'GET' && url.pathname === '/') {
-      const cases = await getRecentCases(env.DB, 20);
+      const page = Math.max(1, parseInt(url.searchParams.get('page') ?? '1', 10));
       const showCosts = url.searchParams.get('show_costs') === '1';
       const showConsent = url.searchParams.get('show_consent') === '1';
-      return htmlResponse(homePage(cases, undefined, undefined, showCosts, showConsent));
+      const PAGE_SIZE = 20;
+      const offset = (page - 1) * PAGE_SIZE;
+      const [cases, totalCount] = await Promise.all([
+        getRecentCasesPaged(env.DB, PAGE_SIZE, offset, showCosts, showConsent),
+        getCaseCountPaged(env.DB, showCosts, showConsent),
+      ]);
+      return htmlResponse(homePage(cases, undefined, undefined, showCosts, showConsent, page, totalCount));
     }
 
     // POST /subscribe — Handle sign-up form
@@ -172,8 +178,11 @@ export default {
       const preferences = JSON.stringify({ show_costs: showCosts, show_consent: showConsent });
 
       if (!email || !isValidEmail(email)) {
-        const cases = await getRecentCases(env.DB, 20);
-        return htmlResponse(homePage(cases, 'Please enter a valid email address.', { name: name ?? '', email }));
+        const [cases, totalCount] = await Promise.all([
+          getRecentCasesPaged(env.DB, 20, 0, false, false),
+          getCaseCountPaged(env.DB, false, false),
+        ]);
+        return htmlResponse(homePage(cases, 'Please enter a valid email address.', { name: name ?? '', email }, false, false, 1, totalCount));
       }
 
       const { token, alreadyActive } = await addSubscriberPending(env.DB, email, name, preferences);

@@ -103,6 +103,45 @@ export async function getRecentCases(
 }
 
 /**
+ * Returns a paginated slice of cases for the public landing page.
+ * Filters out placeholder summaries and (optionally) tagged cases server-side.
+ */
+export async function getRecentCasesPaged(
+  db: D1Database,
+  limit: number,
+  offset: number,
+  showCosts: boolean,
+  showConsent: boolean
+): Promise<DbSeenCase[]> {
+  let where = "WHERE summary IS NOT NULL AND summary NOT LIKE '(seeded%'";
+  if (!showCosts) where += " AND summary NOT LIKE '[COSTS ONLY]%'";
+  if (!showConsent) where += " AND summary NOT LIKE '[CONSENT]%'";
+  const result = await db
+    .prepare(`SELECT * FROM seen_cases ${where} ORDER BY processed_at DESC LIMIT ? OFFSET ?`)
+    .bind(limit, offset)
+    .all<DbSeenCase>();
+  return result.results;
+}
+
+/**
+ * Returns total count of cases visible on the landing page (respecting tag filters).
+ * Used for pagination.
+ */
+export async function getCaseCountPaged(
+  db: D1Database,
+  showCosts: boolean,
+  showConsent: boolean
+): Promise<number> {
+  let where = "WHERE summary IS NOT NULL AND summary NOT LIKE '(seeded%'";
+  if (!showCosts) where += " AND summary NOT LIKE '[COSTS ONLY]%'";
+  if (!showConsent) where += " AND summary NOT LIKE '[CONSENT]%'";
+  const result = await db
+    .prepare(`SELECT COUNT(*) as count FROM seen_cases ${where}`)
+    .first<{ count: number }>();
+  return result?.count ?? 0;
+}
+
+/**
  * Returns case statistics (counts by source).
  * Used by dashboard to avoid loading full result sets.
  */
@@ -169,16 +208,14 @@ export async function addPendingSubscriber(
   email: string,
   name: string | null,
   confirmToken: string,
-  unsubscribeToken: string,
-  preferences?: string
+  unsubscribeToken: string
 ): Promise<DbSubscriber> {
-  const prefs = preferences || JSON.stringify({ show_costs: false, show_consent: false });
   await db
     .prepare(
-      `INSERT INTO subscribers (email, name, active, confirmed, confirm_token, unsubscribe_token, preferences, created_at)
-       VALUES (?, ?, 0, 0, ?, ?, ?, datetime('now'))`
+      `INSERT INTO subscribers (email, name, active, confirmed, confirm_token, unsubscribe_token, created_at)
+       VALUES (?, ?, 0, 0, ?, ?, datetime('now'))`
     )
-    .bind(email, name, confirmToken, unsubscribeToken, prefs)
+    .bind(email, name, confirmToken, unsubscribeToken)
     .run();
   
   const subscriber = await getSubscriberByEmail(db, email);
@@ -353,18 +390,6 @@ export async function getConfig(db: D1Database, key: string): Promise<string | n
 }
 
 /**
- * Sets a config value (insert or replace).
- */
-export async function setConfig(db: D1Database, key: string, value: string): Promise<void> {
-  await db
-    .prepare(
-      `INSERT OR REPLACE INTO config (key, value, updated_at) VALUES (?, ?, datetime('now'))`
-    )
-    .bind(key, value)
-    .run();
-}
-
-/**
  * Alias for addPendingSubscriber to match the old interface.
  */
 export async function addSubscriberPending(
@@ -383,30 +408,6 @@ export async function addSubscriberPending(
   
   await addPendingSubscriber(db, email, name, confirmToken, unsubscribeToken);
   return { token: confirmToken, alreadyActive: false };
-}
-
-/** Looks up a subscriber by their unsubscribe token. */
-export async function getSubscriberByToken(
-  db: D1Database,
-  token: string
-): Promise<DbSubscriber | null> {
-  const result = await db
-    .prepare('SELECT * FROM subscribers WHERE unsubscribe_token = ?')
-    .bind(token)
-    .first<DbSubscriber>();
-  return result || null;
-}
-
-/** Updates a subscriber's preferences JSON. */
-export async function updatePreferences(
-  db: D1Database,
-  token: string,
-  preferences: string
-): Promise<void> {
-  await db
-    .prepare('UPDATE subscribers SET preferences = ? WHERE unsubscribe_token = ?')
-    .bind(preferences, token)
-    .run();
 }
 
 // ─── Processing lock ──────────────────────────────────────────────────────
@@ -452,4 +453,40 @@ export async function isProcessing(db: D1Database): Promise<boolean> {
     console.warn(`Error checking lock age: ${err}, treating lock as active`);
     return true;
   }
+}
+
+// ─── LLM Prompts ──────────────────────────────────────────────────────────
+
+/**
+ * Retrieves the current LLM system prompt for a given type.
+ * type: 'era' or 'ec' (Employment Court)
+ */
+export async function getPrompt(db: D1Database, type: 'era' | 'ec'): Promise<string> {
+  const key = type === 'era' ? 'prompt_era' : 'prompt_ec';
+  const result = await db
+    .prepare('SELECT value FROM config WHERE key = ?')
+    .bind(key)
+    .first<{ value: string }>();
+  
+  if (!result?.value) {
+    // Fallback: if prompt not in DB (shouldn't happen after migration 0007), return a minimal default
+    return type === 'era' 
+      ? 'You are a legal analyst. Provide a structured summary with these sections: PARTIES, REPRESENTATIVES, FACTS, LEGAL ISSUES, HOW THE ISSUES WERE RESOLVED, OUTCOME, REMEDY.'
+      : 'You are a legal analyst. Provide a structured 7-section summary: JUDGE & DATE, PARTIES, REPRESENTATIVES, FACTS, ERA FINDINGS, EMPLOYMENT COURT ISSUES RAISED, HOW THE EMPLOYMENT COURT ISSUES WERE RESOLVED, OUTCOME & REMEDY.';
+  }
+  
+  return result.value;
+}
+
+/**
+ * Updates the LLM system prompt for a given type.
+ * type: 'era' or 'ec'
+ * prompt: The new prompt text
+ */
+export async function setPrompt(db: D1Database, type: 'era' | 'ec', prompt: string): Promise<void> {
+  const key = type === 'era' ? 'prompt_era' : 'prompt_ec';
+  await db
+    .prepare(`INSERT OR REPLACE INTO config (key, value, updated_at) VALUES (?, ?, datetime('now'))`)
+    .bind(key, prompt)
+    .run();
 }
