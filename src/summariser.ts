@@ -13,6 +13,7 @@
 import type { CaseListing, OpenRouterRequest, OpenRouterResponse, SummaryResult } from './types';
 import type { PdfContent } from './pdf';
 import { truncateToTokenBudget } from './pdf';
+import { stripLlmArtifacts } from './utils';
 
 const OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1/chat/completions';
 
@@ -281,29 +282,4 @@ function sleep(ms: number): Promise<void> {
 
 /**
  * Strips LLM preambles and artifacts from the summary.
- * Examples of what gets removed:
- *   - "I'll analyze this determination..."
- *   - "Let me provide a structured summary..."
- *   - "[FINAL DETERMINATION]" flags
- *   - "---FORMAT START---" / "---FORMAT END---" markers
- */
-function stripLlmArtifacts(text: string): string {
-  let cleaned = text;
-
-  // Remove common preambles
-  cleaned = cleaned.replace(/^['"']?I['']ll\s+(analyze|summarize)\s+.*?\.?\s*\n\n/is, '');
-  cleaned = cleaned.replace(/^['"']?Let\s+me\s+(provide|give)\s+.*?\.?\s*\n\n/is, '');
-  cleaned = cleaned.replace(/^['"']?Here['']s\s+.*?\.?\s*\n\n/is, '');
-
-  // Remove document type flags
-  cleaned = cleaned.replace(/^\[FINAL DETERMINATION\]\s*\n\n/im, '');
-  cleaned = cleaned.replace(/^\[INTERIM[^\]]*\]\s*\n\n/im, '');
-  cleaned = cleaned.replace(/^\[CONSENT ORDER\]\s*\n\n/im, '');
-  cleaned = cleaned.replace(/^\[COSTS ORDER\]\s*\n\n/im, '');
-
-  // Remove format markers
-  cleaned = cleaned.replace(/^---?FORMAT\s+START---?\s*\n*/im, '');
-  cleaned = cleaned.replace(/\n*---?FORMAT\s+END---?\s*$/im, '');
-
-  return cleaned.trim();
-}
+ * stripLlmArtifacts is imported from ./utils (shared with EC summariser)

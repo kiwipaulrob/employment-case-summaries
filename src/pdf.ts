@@ -292,7 +292,7 @@ async function extractTextFromPdfBytes(buffer: ArrayBuffer): Promise<string> {
   if (textParts.length === 0) {
     console.log('[pdf] No text extracted from BT...ET blocks; trying fallback parenthesis regex');
     // Loosened regex: allow more punctuation, Unicode dashes, quotes
-    const parenRegex = /\(([A-Za-z0-9 ,.'":;!?\n\r\t\\-–—""\(\)]{8,})\)/g;
+    const parenRegex = /\(([A-Za-z0-9 ,.'":;!?\n\r\t\\\-–—"()]{8,})\)/g;
     let m: RegExpExecArray | null;
     // eslint-disable-next-line no-cond-assign
     while ((m = parenRegex.exec(raw)) !== null) {

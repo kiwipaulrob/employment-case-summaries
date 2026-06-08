@@ -83,7 +83,31 @@ export function generateToken(): string {
  * Strips HTML tags from a string, returning plain text.
  */
 export function stripHtml(s: string): string {
-  return s.replace(/<[^>]+>/g, '');
+  return s.replace(/<[a-z\/][^>]*>/gi, '');
+}
+
+/**
+ * Strip common LLM preambles and metadata artifacts from both ERA and EC summaries.
+ * Centralised here so both summariser files share the same logic.
+ */
+export function stripLlmArtifacts(text: string): string {
+  let cleaned = text;
+
+  // Remove conversational preambles — I'll / Let me / Here's
+  cleaned = cleaned.replace(/^['"]?(?:I'll|Let\s+me|Here's)\s+.*?\.?\s*\n\n/is, '');
+
+  // Remove document type flags
+  cleaned = cleaned.replace(/^\[FINAL DETERMINATION\]\s*\n\n/im, '');
+  cleaned = cleaned.replace(/^\[INTERIM[^\]]*\]\s*\n\n/im, '');
+  cleaned = cleaned.replace(/^\[CONSENT ORDER\]\s*\n\n/im, '');
+  cleaned = cleaned.replace(/^\[COSTS ORDER\]\s*\n\n/im, '');
+  cleaned = cleaned.replace(/^\[JUDGMENT ON APPEAL\]\s*\n\n/im, '');
+
+  // Remove format markers
+  cleaned = cleaned.replace(/^---?FORMAT\s+START---?\s*\n*/im, '');
+  cleaned = cleaned.replace(/\n*---?FORMAT\s+END---?\s*$/im, '');
+
+  return cleaned.trim();
 }
 
 /**
@@ -131,7 +155,7 @@ export function summaryToPageHtml(summary: string): string {
       if (/^\d+[.)]\s/.test(content) || content.includes('\n•') || content.startsWith('•')) {
         const items = content
           .split('\n')
-          .map(l => l.replace(/^\d+[.)]\s*/, '').replace(/^[•\-]\s*/, '').trim())
+          .map(l => l.replace(/^(\d+[.)]|[•\-])\s*/, '').trim())
           .filter(Boolean);
         const listHtml = items.map(i => `<li>${escapeHtml(i)}</li>`).join('');
         parts.push(`<div class="sum-body"><ol>${listHtml}</ol></div>`);
@@ -176,7 +200,7 @@ export function getSummaryExcerpt(summary: string, maxLength = 260): string {
   }
 
   // Try to extract the FACTS section
-  const factsMatch = summary.match(/FACTS[:\s]*\n([\s\S]*?)(?:\n[A-Z &]{3,}[:\s]*\n|$)/);
+  const factsMatch = summary.match(/FACTS[:\s]*\n([\s\S]*?)(?:\n[A-Z &]{4,}[:\s]*\n|$)/);
   if (factsMatch?.[1]) {
     const excerpt = factsMatch[1].trim();
     return excerpt.length > maxLength ? excerpt.slice(0, maxLength).trimEnd() + '…' : excerpt;
