@@ -846,7 +846,7 @@ export default {
 
         // Check if already in seen_cases
         const existing = await env.DB.prepare(
-          "SELECT id FROM seen_cases WHERE source = 'ERA' AND pdf_filename = ?"
+          "SELECT 1 FROM seen_cases WHERE source = 'ERA' AND pdf_filename = ?"
         ).bind(pdfFilename).first();
 
         if (existing) {
