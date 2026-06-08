@@ -23,6 +23,10 @@
  *   POST /admin/clear-seen  — Clear seen_cases table
  *   POST /admin/upload-ec-case — Upload Employment Court PDF for manual processing
  *   POST /admin/send-digest — Send digest from stored summaries
+ *
+ * Dashboard API routes (session cookie auth — added 8 June 2026):
+ *   POST /admin/dashboard/backfill-era      — Scrape ERA pages 1–N and silently process new cases (no email)
+ *   POST /admin/dashboard/upload-era-url    — Process a single ERA case by PDF URL (no email, manual backfill)
  *   POST /admin/test-email  — Send test email
  *   GET  /admin/test-llm    — Test OpenRouter connectivity
  */
@@ -37,7 +41,7 @@ import {
   deleteSubscriber, deleteStalePendingSubscribers, setProcessingLock, isProcessing,
   getSubscriberByToken, updatePreferences,
 } from './db';
-import { scrapeRecentPage, enrichCasesWithDetails } from './scraper';
+import { scrapeRecentPage, scrapeAllPages, enrichCasesWithDetails } from './scraper';
 import { getPdfContent, getPdfContentFromBytes, type PdfContent } from './pdf';
 import { summariseCase } from './summariser';
 import { summariseEmploymentCourtCase } from './summariserEmploymentCourt';
@@ -688,6 +692,220 @@ export default {
         });
       } catch (err) {
         return jsonResponse({ error: String(err) }, 500);
+      }
+    }
+
+
+    // ──────────────────────────────────────────────────────────────────────────
+    // POST /admin/dashboard/backfill-era
+    //
+    // Option A — Multi-page ERA backfill (added 8 June 2026).
+    // Scrapes the ERA recent determinations listing across multiple pages
+    // (up to 30 cases from the last ~10 days) and silently processes any cases
+    // that are not yet in seen_cases.  No email is sent — this is a pure
+    // archive-population operation.
+    //
+    // Query params:
+    //   pages  — Number of ERA listing pages to scrape (1–3, default 3)
+    //
+    // Each page uses ?start=N offset (0, 10, 20…) on the ERA listing URL.
+    // Deduplication is handled by filterNewCases (seen_cases composite key).
+    // Cases are marked as seen immediately after each successful summarisation
+    // (unlike the normal cron run, which only marks after email dispatch — there
+    // is no email here, so immediate commit is correct).
+    // ──────────────────────────────────────────────────────────────────────────
+    if (request.method === 'POST' && url.pathname === '/admin/dashboard/backfill-era') {
+      const session = getAdminCookie(request);
+      if (session !== env.ADMIN_SECRET) {
+        return new Response('Unauthorized', { status: 401 });
+      }
+      try {
+        const pages = Math.min(Math.max(parseInt(url.searchParams.get('pages') ?? '3', 10), 1), 5);
+        const usePdfPassthrough = env.USE_PDF_URL_PASSTHROUGH !== 'false';
+
+        console.log(`ERA Backfill: scraping ${pages} page(s) of ERA listings`);
+
+        // Scrape all requested pages and get deduplicated list
+        const allScraped = await scrapeAllPages(pages, env.SOURCE_URL);
+        console.log(`ERA Backfill: ${allScraped.length} unique cases scraped across ${pages} page(s)`);
+
+        // Filter to only cases not yet in seen_cases
+        const newCases = await filterNewCases(env.DB, allScraped);
+        console.log(`ERA Backfill: ${newCases.length} new (unseen) cases to process`);
+
+        let processed = 0;
+        let failed = 0;
+
+        for (const c of newCases) {
+          console.log(`ERA Backfill: processing ${c.caseId} — ${c.title}`);
+          try {
+            if (!c.pdfUrl) {
+              console.warn(`ERA Backfill: skipping ${c.caseId} — no PDF URL`);
+              failed++;
+              continue;
+            }
+
+            const pdfContent = await getPdfContent(c.pdfUrl, usePdfPassthrough);
+            const summaryResult = await summariseCase(c, pdfContent, env.OPENROUTER_API_KEY, env.OPENROUTER_MODEL, env.DB);
+            if (!summaryResult.success) {
+              console.warn(`ERA Backfill: summarisation failed for ${c.caseId}`);
+              failed++;
+              continue;
+            }
+
+            const betterTitle = extractTitleFromSummary(summaryResult.summary, c.category);
+            const processedCase: ProcessedCase = {
+              ...c,
+              title: betterTitle || c.title,
+              summary: summaryResult.summary,
+              processedAt: new Date().toISOString(),
+              source: 'ERA',
+            };
+
+            // Mark as seen immediately — no email to wait for
+            await markCaseSeen(env.DB, processedCase, 'ERA');
+            processed++;
+            console.log(`ERA Backfill: stored ${c.caseId} (${betterTitle || c.title})`);
+          } catch (err) {
+            console.error(`ERA Backfill: error processing ${c.caseId}: ${err}`);
+            failed++;
+          }
+        }
+
+        return jsonResponse({
+          success: true,
+          pages_scraped: pages,
+          found: allScraped.length,
+          new_cases: newCases.length,
+          processed,
+          failed,
+          message: processed > 0
+            ? `Successfully processed ${processed} new ERA case(s) from ${pages} page(s). No email sent — cases stored for archive.`
+            : newCases.length === 0
+              ? `No new cases found — all ${allScraped.length} scraped case(s) already in database.`
+              : `Processed 0 cases (${failed} failed). Check worker logs.`,
+        });
+      } catch (err) {
+        console.error(`ERA Backfill error: ${err}`);
+        return jsonResponse({ success: false, error: String(err) }, 500);
+      }
+    }
+
+    // ──────────────────────────────────────────────────────────────────────────
+    // POST /admin/dashboard/upload-era-url
+    //
+    // Option C — Manual ERA case URL upload (added 8 June 2026).
+    // Allows a single ERA case to be processed by pasting its PDF URL into
+    // the admin dashboard.  Designed for cases that are no longer on the ERA
+    // recent listing (older than ~10 days) and cannot be recovered via the
+    // auto-scrape backfill above.
+    //
+    // Request body (JSON):
+    //   { pdfUrl: string }   — Full URL to the ERA PDF
+    //                          e.g. https://determinations.era.govt.nz/assets/elawpdf/2026/2026-NZERA-225.pdf
+    //
+    // Metadata is derived automatically from the URL:
+    //   pdfFilename  — last segment of the URL path
+    //   category     — citation inferred from filename (e.g. "[2026] NZERA 225")
+    //   caseId       — filename without .pdf extension
+    //
+    // The ERA listing page URL is used as caseUrl (the "View case summary" link
+    // in emails) since we don't know the integer detail-page ID from the PDF URL.
+    //
+    // No email is sent — this is a silent archive-population operation.
+    // ──────────────────────────────────────────────────────────────────────────
+    if (request.method === 'POST' && url.pathname === '/admin/dashboard/upload-era-url') {
+      const session = getAdminCookie(request);
+      if (session !== env.ADMIN_SECRET) {
+        return new Response('Unauthorized', { status: 401 });
+      }
+      try {
+        const body = await request.json() as { pdfUrl?: string } | null;
+        const pdfUrl = body?.pdfUrl?.trim();
+
+        if (!pdfUrl) {
+          return jsonResponse({ error: 'Missing required field: pdfUrl' }, 400);
+        }
+
+        // Validate it looks like an ERA PDF URL
+        if (!pdfUrl.match(/determinations\.era\.govt\.nz.*\.pdf$/i)) {
+          return jsonResponse({
+            error: 'URL does not appear to be an ERA PDF. Expected: https://determinations.era.govt.nz/assets/elawpdf/YYYY/YYYY-NZERA-NNN.pdf',
+          }, 400);
+        }
+
+        // Derive metadata from URL
+        const pdfFilename = pdfUrl.split('/').pop() ?? 'unknown.pdf';
+        const caseId = pdfFilename.replace(/\.pdf$/i, '');
+
+        // Infer citation from filename pattern like "2026-NZERA-225.pdf" → "[2026] NZERA 225"
+        const citMatch = pdfFilename.match(/^(\d{4})-([A-Z]+)-(\d+)\.pdf$/i);
+        const category = citMatch
+          ? `[${citMatch[1]}] ${citMatch[2].toUpperCase()} ${citMatch[3]}`
+          : null;
+
+        // Check if already in seen_cases
+        const existing = await env.DB.prepare(
+          "SELECT id FROM seen_cases WHERE source = 'ERA' AND pdf_filename = ?"
+        ).bind(pdfFilename).first();
+
+        if (existing) {
+          return jsonResponse({
+            success: false,
+            already_exists: true,
+            message: `Case ${pdfFilename} is already in the database.`,
+          });
+        }
+
+        // Build a CaseListing with what we know
+        const caseListing = {
+          caseId,
+          title: category ?? caseId,
+          caseUrl: env.SOURCE_URL,       // ERA listing page (used as "View case summary" link)
+          pdfUrl,
+          member: null,
+          datePublished: null,
+          category,
+        };
+
+        // Download and extract PDF using Strategy B (FlateDecode — works for all ERA PDFs)
+        const usePdfPassthrough = env.USE_PDF_URL_PASSTHROUGH !== 'false';
+        const pdfContent = await getPdfContent(pdfUrl, usePdfPassthrough);
+
+        // Summarise with ERA prompt (read from D1 at runtime)
+        const summaryResult = await summariseCase(
+          caseListing, pdfContent, env.OPENROUTER_API_KEY, env.OPENROUTER_MODEL, env.DB
+        );
+
+        if (!summaryResult.success) {
+          return jsonResponse({
+            success: false,
+            error: 'Summarisation failed or returned empty result',
+          }, 500);
+        }
+
+        const betterTitle = extractTitleFromSummary(summaryResult.summary, category);
+        const processedCase: ProcessedCase = {
+          ...caseListing,
+          title: betterTitle || caseListing.title,
+          summary: summaryResult.summary,
+          processedAt: new Date().toISOString(),
+          source: 'ERA',
+        };
+
+        await markCaseSeen(env.DB, processedCase, 'ERA');
+        console.log(`ERA URL Upload: stored ${caseId} (${betterTitle || caseListing.title})`);
+
+        return jsonResponse({
+          success: true,
+          pdfFilename,
+          title: betterTitle || caseListing.title,
+          category,
+          message: `Case processed and stored successfully. No email sent.`,
+        });
+      } catch (err) {
+        console.error(`ERA URL Upload error: ${err}`);
+        return jsonResponse({ success: false, error: String(err) }, 500);
       }
     }
 

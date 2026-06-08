@@ -31,8 +31,25 @@ const USER_AGENT =
  * Fetches the recent determinations page and returns all cases with full metadata,
  * including PDF URLs. All data is extracted from the list page in a single request.
  */
-export async function scrapeRecentPage(sourceUrl: string): Promise<CaseListing[]> {
-  const response = await fetch(sourceUrl, {
+/**
+ * Fetches a single page of recent ERA determinations.
+ *
+ * Option A — Pagination support (8 June 2026):
+ * ERA's listing page supports a ?start=N offset parameter which shifts the
+ * results window by N cases. Each page shows 10 cases, so:
+ *   start=0  → cases 1–10  (default, same as base URL)
+ *   start=10 → cases 11–20 (page 2)
+ *   start=20 → cases 21–30 (page 3)
+ * This allows backfilling cases that appeared on the listing in the last
+ * 10 days but have since been pushed off by newer publications.
+ *
+ * @param sourceUrl   — Base URL of the ERA recent determinations page
+ * @param startOffset — Pagination offset (0 = first page, 10 = second, etc.)
+ */
+export async function scrapeRecentPage(sourceUrl: string, startOffset = 0): Promise<CaseListing[]> {
+  // Build the page URL — append ?start=N for pages beyond the first
+  const pageUrl = startOffset > 0 ? `${sourceUrl}?start=${startOffset}` : sourceUrl;
+  const response = await fetch(pageUrl, {
     headers: { 'User-Agent': USER_AGENT },
   });
 
@@ -215,6 +232,49 @@ export async function scrapeRecentPage(sourceUrl: string): Promise<CaseListing[]
   }
 
   return cases;
+}
+
+
+// ─── Multi-page scraper ───────────────────────────────────────────────────────
+
+/**
+ * Scrapes multiple pages of ERA recent determinations and returns a combined,
+ * deduplicated list of all cases found.
+ *
+ * Option A — Backfill support (added 8 June 2026):
+ * The ERA listing page shows cases from roughly the last 10 days spread across
+ * up to 3 pages (10 cases each). By scraping all pages we can recover cases
+ * that were published recently but have since been pushed off page 1.
+ *
+ * Deduplication is by caseId (the ERA integer ID from the case URL) so any
+ * overlap between page requests is silently removed.
+ *
+ * @param pages      — Number of pages to fetch (1 = first 10 cases, 3 = up to 30)
+ * @param sourceUrl  — Base URL of the ERA recent determinations page
+ */
+export async function scrapeAllPages(pages: number, sourceUrl: string): Promise<CaseListing[]> {
+  const seen = new Set<string>();
+  const all: CaseListing[] = [];
+
+  for (let p = 0; p < pages; p++) {
+    const offset = p * 10;
+    try {
+      const pageCases = await scrapeRecentPage(sourceUrl, offset);
+      for (const c of pageCases) {
+        const key = c.caseId;
+        if (!seen.has(key)) {
+          seen.add(key);
+          all.push(c);
+        }
+      }
+      console.log(`scrapeAllPages: page ${p + 1} (offset ${offset}) — ${pageCases.length} cases fetched, ${all.length} unique so far`);
+    } catch (err) {
+      // Log but continue — a missing page shouldn't abort the whole backfill
+      console.warn(`scrapeAllPages: failed to fetch page ${p + 1} (offset ${offset}): ${err}`);
+    }
+  }
+
+  return all;
 }
 
 // ─── Stub: enrichCasesWithDetails ────────────────────────────────────────────

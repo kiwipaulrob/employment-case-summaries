@@ -300,6 +300,7 @@ export function getDashboardHtml(status: {
       <button class="tab-btn" type="button" onclick="switchTab(event, 'analytics')">Analytics</button>
       <button class="tab-btn" type="button" onclick="switchTab(event, 'prompts')">Prompts</button>
       <button class="tab-btn" type="button" onclick="switchTab(event, 'rescan')">Rescan</button>
+      <button class="tab-btn" type="button" onclick="switchTab(event, 'era-backfill')">ERA Backfill</button>
     </div>
 
     <!-- Digest Controls Tab -->
@@ -737,6 +738,88 @@ export function getDashboardHtml(status: {
           statusEl.innerHTML = '';
           statusEl.className = '';
         }, 5000);
+      } catch (err) {
+        statusEl.className = 'alert alert-error';
+        statusEl.innerHTML = '<strong>❌ Error:</strong> ' + err.message;
+      }
+    }
+
+    // Option A — ERA multi-page backfill (added 8 June 2026)
+    // Scrapes up to 3 ERA listing pages, finds unseen cases, summarises & stores them.
+    // No email is sent — purely for populating the archive database.
+    async function backfillEraPages() {
+      const statusEl = document.getElementById('backfill-status');
+      const pages = document.getElementById('backfill-pages').value;
+      statusEl.innerHTML = '⏳ Scraping ' + pages + ' page(s) of ERA listings...';
+      statusEl.className = '';
+
+      try {
+        const response = await fetch('/admin/dashboard/backfill-era?pages=' + pages, {
+          method: 'POST',
+          credentials: 'same-origin',
+        });
+
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || 'Request failed');
+
+        statusEl.className = 'alert alert-success';
+        statusEl.innerHTML =
+          '<strong>✓ Backfill complete!</strong><br>' +
+          'Pages scraped: <strong>' + data.pages_scraped + '</strong> &nbsp;|&nbsp; ' +
+          'Cases found: <strong>' + data.found + '</strong> &nbsp;|&nbsp; ' +
+          'New: <strong>' + data.new_cases + '</strong> &nbsp;|&nbsp; ' +
+          'Processed: <strong>' + data.processed + '</strong>' +
+          (data.failed > 0 ? ' &nbsp;|&nbsp; Failed: <strong style="color:red">' + data.failed + '</strong>' : '') +
+          '<br><small style="color:#555">' + data.message + '</small>';
+      } catch (err) {
+        statusEl.className = 'alert alert-error';
+        statusEl.innerHTML = '<strong>❌ Error:</strong> ' + err.message;
+      }
+    }
+
+    // Option C — Process a single ERA case by pasting its PDF URL (added 8 June 2026)
+    // For cases older than ~10 days that are no longer on the ERA listing.
+    // No email is sent — purely for populating the archive database.
+    async function processEraUrl() {
+      const statusEl = document.getElementById('era-url-status');
+      const pdfUrl = document.getElementById('era-pdf-url').value.trim();
+
+      if (!pdfUrl) {
+        statusEl.className = 'alert alert-error';
+        statusEl.innerHTML = '❌ Please enter a PDF URL.';
+        return;
+      }
+
+      statusEl.innerHTML = '⏳ Downloading and summarising case...';
+      statusEl.className = '';
+
+      try {
+        const response = await fetch('/admin/dashboard/upload-era-url', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ pdfUrl }),
+        });
+
+        const data = await response.json();
+
+        if (data.already_exists) {
+          statusEl.className = 'alert alert-info';
+          statusEl.innerHTML = 'ℹ️ ' + data.message;
+          return;
+        }
+
+        if (!response.ok || !data.success) throw new Error(data.error || 'Request failed');
+
+        statusEl.className = 'alert alert-success';
+        statusEl.innerHTML =
+          '<strong>✓ Case processed and stored!</strong><br>' +
+          'Title: <strong>' + (data.title || data.pdfFilename) + '</strong><br>' +
+          (data.category ? 'Citation: ' + data.category + '<br>' : '') +
+          '<small style="color:#555">' + data.message + '</small>';
+
+        // Clear the URL input
+        document.getElementById('era-pdf-url').value = '';
       } catch (err) {
         statusEl.className = 'alert alert-error';
         statusEl.innerHTML = '<strong>❌ Error:</strong> ' + err.message;
