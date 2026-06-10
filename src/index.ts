@@ -1492,10 +1492,62 @@ function toTitleCaseSimple(s: string): string {
 }
 
 /**
- * Extract a proper case title from the LLM summary.
- * Uses the PARTIES section which is more accurate than filename parsing.
- * Handles both ERA format (Party v Party) and EC format (Appellant/Respondent).
- * Applies legal naming conventions: 1 party = name, 2 = "& Anor", 3+ = "& Ors".
+ * Strips a party name extracted from a LLM PARTIES section line.
+ *
+ * The LLM formats party names as:
+ *   Applicant: Jane Smith (employee — some description)
+ *   Respondent: Acme Ltd (employer)
+ *
+ * This helper removes the parenthetical role description so only the bare
+ * name is returned. It handles two cases:
+ *   1. Closed parenthetical on the same line: "Jane Smith (employee)" → "Jane Smith"
+ *   2. Unclosed parenthetical (line ends mid-description): "Jane Smith (employee —"
+ *      → "Jane Smith"  (prevents stray open-paren in the stored title)
+ */
+function cleanPartyName(raw: string): string {
+  return raw
+    .replace(/\(.*?\)/g, '')    // remove closed parentheticals
+    .replace(/\s*\([^)]*$/, '') // strip unclosed trailing parenthetical
+    .trim();
+}
+
+/**
+ * Words that indicate the "party name" extracted from PARTIES is actually a
+ * legal representative. This happens when the ERA registry lists a case using
+ * a counsel's name (e.g. "Mark Donovan & Anor v Rhino-Rack NZ Ltd") and the
+ * LLM is influenced by that metadata rather than the determination body text.
+ *
+ * When triggered, the label-based extraction is discarded and the function
+ * falls through to the "v" pattern fallback, then returns null if that also
+ * fails. The caller must fall back to the scraped ERA title and should log a
+ * warning to prompt a rescan.
+ */
+const REPRESENTATIVE_WORDS = /\b(counsel|solicitor|barrister|advocate)\b/i;
+
+/**
+ * Extracts a display title from the LLM summary's PARTIES section.
+ *
+ * Why this exists:
+ *   The ERA case registry sometimes titles cases using the name of a party's
+ *   legal counsel rather than the actual parties (employee / employer). The
+ *   scraper picks up that registry title verbatim. This function reads the
+ *   structured PARTIES section that the LLM generates from the determination
+ *   body text — which always names the real parties — and uses that instead.
+ *
+ * Supported formats:
+ *   ERA:  Applicant: [name]  /  Respondent: [name]
+ *   EC:   Appellant: [name]  /  Respondent: [name]
+ *   Fallback: "[left] v [right]" free-text line in PARTIES
+ *
+ * Robustness improvements over v1:
+ *   - cleanPartyName() handles closed and unclosed parentheticals uniformly
+ *   - ERA lookahead increased from 6 → 10 lines (handles LLMs that add blank
+ *     lines between the section header and the first label)
+ *   - REPRESENTATIVE_WORDS sanity check prevents counsel names leaking through
+ *     if the LLM was confused by a bad ERA registry title in the case metadata
+ *   - Centralized console.warn on null return — all 5 call sites are covered
+ *
+ * Returns null if extraction fails; caller falls back to scraped ERA title.
  */
 function extractTitleFromSummary(summary: string, citation?: string | null): string | null {
   const lines = summary.split('\n');
@@ -1507,7 +1559,9 @@ function extractTitleFromSummary(summary: string, citation?: string | null): str
     const line = lines[i].trim();
     if (line !== 'PARTIES') continue;
 
-    // Look ahead for EC format (Appellant:/Respondent: labels)
+    // ── EC format: Appellant:/Respondent: labels ──────────────────────────────
+    // EC summaries use "Appellant:" instead of "Applicant:". Detect this first
+    // so the ERA path doesn't misfire on a following "Respondent:" line.
     const ecAppellants: string[] = [];
     const ecRespondents: string[] = [];
     let isEc = false;
@@ -1519,14 +1573,14 @@ function extractTitleFromSummary(summary: string, citation?: string | null): str
 
       if (next.match(/^Appellant:/i)) {
         isEc = true;
-        const name = next.replace(/^Appellant:\s*/i, '').replace(/\(.*?\)/g, '').trim();
+        const name = cleanPartyName(next.replace(/^Appellant:\s*/i, ''));
         if (name) ecAppellants.push(name);
       } else if (isEc && next.match(/^Respondent:/i)) {
-        const name = next.replace(/^Respondent:\s*/i, '').replace(/\(.*?\)/g, '').trim();
+        const name = cleanPartyName(next.replace(/^Respondent:\s*/i, ''));
         if (name) ecRespondents.push(name);
       } else if (isEc && next && !next.match(/^[A-Z ]{4,}:/) && !next.match(/^[A-Z &]{4,}$/)) {
-        // Continuation of previous party (multi-line name)
-        const cleaned = next.replace(/\(.*?\)/g, '').trim();
+        // Continuation of previous party on the next line (multi-line name)
+        const cleaned = cleanPartyName(next);
         if (ecRespondents.length > 0) {
           ecRespondents[ecRespondents.length - 1] += ' ' + cleaned;
         } else if (ecAppellants.length > 0) {
@@ -1544,40 +1598,60 @@ function extractTitleFromSummary(summary: string, citation?: string | null): str
       break;
     }
 
-    // ERA format: look for Applicant:/Respondent: labels first
+    // ── ERA format: Applicant:/Respondent: labels ─────────────────────────────
+    // Lookahead is 10 lines so we handle LLMs that emit blank lines between the
+    // "PARTIES" header and the first "Applicant:" label. (Previous value: 6.)
     let applicantName = '';
     let respondentName = '';
 
-    for (let j = i + 1; j < Math.min(i + 6, lines.length); j++) {
+    for (let j = i + 1; j < Math.min(i + 10, lines.length); j++) {
       const eraLine = lines[j].trim();
       if (!eraLine || eraLine.match(/^---/)) continue;
 
       const appMatch = eraLine.match(/^Applicant:\s*(.+)/i);
       if (appMatch) {
-        applicantName = appMatch[1].replace(/\(.*?\)/g, '').trim();
+        applicantName = cleanPartyName(appMatch[1]);
         continue;
       }
 
       const respMatch = eraLine.match(/^Respondent:\s*(.+)/i);
       if (respMatch) {
-        respondentName = respMatch[1].replace(/\(.*?\)/g, '').trim();
+        respondentName = cleanPartyName(respMatch[1]);
         continue;
       }
 
-      // Stop if we hit another section label
+      // Stop if we reach the next all-caps section header
       if (eraLine.match(/^[A-Z &]{4,}:/)) break;
     }
 
     if (applicantName && respondentName) {
-      const splitParties = (s: string): string[] =>
-        s.split(/\s*,\s*|\s+and\s+/i).map(x => x.trim()).filter(Boolean);
+      // Sanity check: if either extracted name contains legal representative
+      // language, the LLM has confused parties with counsel — almost always
+      // caused by the ERA registry title containing a counsel's name that was
+      // passed to the LLM as case metadata. Don't trust these names; fall
+      // through to the "v" pattern fallback instead.
+      if (REPRESENTATIVE_WORDS.test(applicantName) || REPRESENTATIVE_WORDS.test(respondentName)) {
+        console.warn(
+          `[extractTitleFromSummary] Extracted party names appear to contain legal ` +
+          `representative language — skipping label extraction. ` +
+          `applicant="${applicantName}", respondent="${respondentName}", ` +
+          `citation="${citation ?? ''}". Falling through to "v" pattern fallback.`
+        );
+        // Do not set found; fall through to "v" pattern below
+      } else {
+        const splitParties = (s: string): string[] =>
+          s.split(/\s*,\s*|\s+and\s+/i).map(x => x.trim()).filter(Boolean);
 
-      leftNames = splitParties(applicantName);
-      rightNames = splitParties(respondentName);
-      found = true;
+        leftNames = splitParties(applicantName);
+        rightNames = splitParties(respondentName);
+        found = true;
+      }
     }
 
-    // Fallback: try "Party v Other" pattern if no labels matched
+    // ── Fallback: "Party v Other Party" free-text line ───────────────────────
+    // Used when Applicant:/Respondent: labels are missing — e.g. summaries that
+    // were generated with the minimal fallback prompt before real prompts were
+    // seeded into D1.
     if (!found) {
       for (let j = i + 1; j < Math.min(i + 4, lines.length); j++) {
         const vLine = lines[j].trim();
@@ -1586,7 +1660,7 @@ function extractTitleFromSummary(summary: string, citation?: string | null): str
         const vMatch = vLine.match(/^(.+?)\s+v(?:s)?\.?\s+(.+)/i);
         if (vMatch) {
           const splitParties = (s: string): string[] =>
-            s.split(/\s*,\s*|\s+and\s+|\s*;\s*/).map(x => x.trim().replace(/\(.*?\)/g, '').trim()).filter(Boolean);
+            s.split(/\s*,\s*|\s+and\s+|\s*;\s*/).map(x => cleanPartyName(x)).filter(Boolean);
 
           leftNames = splitParties(vMatch[1].trim());
           rightNames = splitParties(vMatch[2].trim());
@@ -1599,9 +1673,21 @@ function extractTitleFromSummary(summary: string, citation?: string | null): str
     if (found) break;
   }
 
-  if (!found || (leftNames.length === 0 && rightNames.length === 0)) return null;
+  if (!found || (leftNames.length === 0 && rightNames.length === 0)) {
+    // This warning is visible in Cloudflare Workers tail logs.
+    // Common causes: PARTIES section absent, unexpected LLM formatting, or
+    // the summary was generated with the minimal fallback prompt (pre-D1 seeding).
+    // Action: rescan the affected case after seeding the proper prompt in D1.
+    console.warn(
+      `[extractTitleFromSummary] Could not extract title from PARTIES section. ` +
+      `citation="${citation ?? 'none'}". Scraped ERA title will be used as fallback — ` +
+      `this may contain a counsel name if the ERA registry used counsel as the case title. ` +
+      `Rescan this case with an updated prompt to correct the stored title.`
+    );
+    return null;
+  }
 
-  // Apply & Anor / & Ors legal naming
+  // Apply & Anor / & Ors legal naming convention
   const formatSide = (names: string[]): string => {
     if (names.length === 0) return '';
     const first = names[0];
@@ -1616,7 +1702,7 @@ function extractTitleFromSummary(summary: string, citation?: string | null): str
   let result = left;
   if (right) result += ' v ' + right;
 
-  // Append citation if available and not already in the title
+  // Append citation if provided and not already embedded in the result string
   const citationPattern = /^\[\d{4}\]\s+NZ/;
   if (citation && citationPattern.test(citation) && !result.includes(citation)) {
     result += ' ' + citation;

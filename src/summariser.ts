@@ -36,6 +36,7 @@ For each determination you receive, produce a structured summary in EXACTLY the 
 PARTIES
 Applicant: [name and role, e.g. "Jane Smith (employee)"]
 Respondent: [name and role, e.g. "Acme Ltd (employer)"]
+CRITICAL — PARTIES must name the actual parties to the dispute: the employee (applicant) by their own personal name, and the employer entity (respondent) by its legal name. Never list a lawyer, counsel, or legal representative as a party. ERA case headings and registry titles sometimes carry a counsel's name — disregard the title entirely and extract the real party names from the body of the determination (e.g., the Background or "The parties" section).
 
 REPRESENTATIVES
 Applicant: [counsel or advocate name and firm, or "Self-represented", or "No appearance"]
