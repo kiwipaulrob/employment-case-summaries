@@ -111,6 +111,14 @@ export function stripLlmArtifacts(text: string): string {
 }
 
 /**
+ * Async sleep/delay helper.
+ * Used by both summarisers for retry-backoff between API call attempts.
+ */
+export function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
  * Converts a plain-text structured LLM summary into styled HTML for web pages.
  * Uses the same section-label parsing as the email renderer but with page CSS classes.
  */
