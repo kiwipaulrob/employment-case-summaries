@@ -294,6 +294,4 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-/**
- * Strips LLM preambles and artifacts from the summary.
- * stripLlmArtifacts is imported from ./utils (shared with EC summariser)
+// Note: stripLlmArtifacts is imported from ./utils (shared with EC summariser)
