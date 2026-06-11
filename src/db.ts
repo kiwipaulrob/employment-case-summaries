@@ -490,3 +490,119 @@ export async function setPrompt(db: D1Database, type: 'era' | 'ec', prompt: stri
     .bind(key, prompt)
     .run();
 }
+
+// ─── Case awards ──────────────────────────────────────────────────────────────
+
+export interface CaseAwardRow {
+  id: number;
+  pdf_filename: string;
+  source: string;
+  hhd_amount: number | null;
+  lost_wages: number | null;
+  lost_wages_weeks: number | null;
+  weekly_wage: number | null;
+  costs_awarded: number | null;
+  reinstatement: number;
+  outcome: string | null;
+  extraction_method: string;
+  created_at: string;
+}
+
+export interface CaseAwardWithCase extends CaseAwardRow {
+  title: string;
+  category: string | null;
+  date_published: string | null;
+  pdf_url: string | null;
+  case_url: string;
+}
+
+/**
+ * Inserts or updates a case award record.
+ * Safe to call multiple times — upserts on (pdf_filename, source).
+ */
+export async function insertCaseAward(
+  db: D1Database,
+  pdfFilename: string,
+  source: string,
+  data: {
+    hhd_amount: number | null;
+    lost_wages: number | null;
+    lost_wages_weeks: number | null;
+    weekly_wage: number | null;
+    costs_awarded: number | null;
+    reinstatement: boolean;
+    outcome: string | null;
+  },
+  extractionMethod: string
+): Promise<void> {
+  await db
+    .prepare(`
+      INSERT INTO case_awards
+        (pdf_filename, source, hhd_amount, lost_wages, lost_wages_weeks, weekly_wage,
+         costs_awarded, reinstatement, outcome, extraction_method)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(pdf_filename, source) DO UPDATE SET
+        hhd_amount        = excluded.hhd_amount,
+        lost_wages        = excluded.lost_wages,
+        lost_wages_weeks  = excluded.lost_wages_weeks,
+        weekly_wage       = excluded.weekly_wage,
+        costs_awarded     = excluded.costs_awarded,
+        reinstatement     = excluded.reinstatement,
+        outcome           = excluded.outcome,
+        extraction_method = excluded.extraction_method
+    `)
+    .bind(
+      pdfFilename, source,
+      data.hhd_amount, data.lost_wages, data.lost_wages_weeks,
+      data.weekly_wage, data.costs_awarded,
+      data.reinstatement ? 1 : 0,
+      data.outcome, extractionMethod
+    )
+    .run();
+}
+
+/**
+ * Returns all award rows joined with their seen_cases metadata.
+ * Used by the public /awards page.
+ */
+export async function getCaseAwardRows(
+  db: D1Database,
+  source = 'ERA'
+): Promise<CaseAwardWithCase[]> {
+  const result = await db
+    .prepare(`
+      SELECT ca.*, sc.title, sc.category, sc.date_published, sc.pdf_url, sc.case_url
+      FROM case_awards ca
+      JOIN seen_cases sc ON sc.pdf_filename = ca.pdf_filename AND sc.source = ca.source
+      WHERE ca.source = ?
+      ORDER BY sc.date_published DESC, sc.processed_at DESC
+    `)
+    .bind(source)
+    .all<CaseAwardWithCase>();
+  return result.results;
+}
+
+/**
+ * Returns ERA cases that have a summary but no entry in case_awards.
+ * Used by the backfill-awards endpoint to find cases needing extraction.
+ */
+export async function getCasesWithoutAwards(
+  db: D1Database,
+  source = 'ERA'
+): Promise<DbSeenCase[]> {
+  const result = await db
+    .prepare(`
+      SELECT sc.*
+      FROM seen_cases sc
+      LEFT JOIN case_awards ca ON ca.pdf_filename = sc.pdf_filename AND ca.source = sc.source
+      WHERE sc.source = ?
+        AND sc.summary IS NOT NULL
+        AND sc.summary NOT LIKE '(seeded%'
+        AND sc.summary NOT LIKE 'Summary unavailable%'
+        AND ca.id IS NULL
+      ORDER BY sc.processed_at DESC
+    `)
+    .bind(source)
+    .all<DbSeenCase>();
+  return result.results;
+}

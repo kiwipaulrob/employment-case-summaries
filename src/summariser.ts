@@ -92,7 +92,20 @@ Additional instructions:
 - CRITICAL: Never invent or hallucinate information. If a detail is not in the document, do not guess — write "Not provided" or leave it blank. This applies especially to representative names, party details, and legal authorities.
 - Keep the total summary to approximately 500–800 words (longer is acceptable if necessary for completeness).
 - Prioritise completeness over brevity. Include all material issues and resolutions.
-- If you cannot access or read the document, respond only with: SUMMARY_UNAVAILABLE`;
+- If you cannot access or read the document, respond only with: SUMMARY_UNAVAILABLE
+
+AWARDS DATA EXTRACTION (append this block at the very end of your response, after the REMEDY section)
+After you finish the REMEDY section, output the following structured block verbatim — it is stripped before display and used only for analytics. Use "nil" for any field that is not awarded, not stated, or not applicable.
+
+AWARDS_DATA
+HHD: [dollar amount of hurt/humiliation/distress award, e.g. $12,500 — or nil]
+Lost wages: [total dollar amount of lost wages/wage compensation ordered, e.g. $8,400 — or nil]
+Weekly wage: [weekly wage of the claimant if stated anywhere in the determination, e.g. $950 — or nil]
+Lost wages weeks: [number of weeks the lost wages figure represents, e.g. 8.8 — or nil if cannot be calculated]
+Costs: [dollar amount of any costs order, e.g. $2,500 — or nil]
+Reinstatement: [yes or no]
+Outcome: [applicant if the employee/applicant succeeded; respondent if the employer/respondent succeeded; mixed if partial; none if no determination on merits]
+AWARDS_DATA_END`;
 
 // ─── Model capability detection ───────────────────────────────────────────────
 

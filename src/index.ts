@@ -40,6 +40,7 @@ import {
   getConfig, setConfig, addSubscriberPending, confirmSubscriber, unsubscribeByToken,
   deleteSubscriber, deleteStalePendingSubscribers, setProcessingLock, isProcessing,
   getSubscriberByToken, updatePreferences,
+  insertCaseAward, getCaseAwardRows, getCasesWithoutAwards,
 } from './db';
 import { scrapeRecentPage, scrapeAllPages, enrichCasesWithDetails } from './scraper';
 import { getPdfContent, getPdfContentFromBytes, type PdfContent } from './pdf';
@@ -52,10 +53,10 @@ import {
 import {
   homePage, subscribedPage, confirmedPage, unsubscribedPage,
   alreadyUnsubscribedPage, invalidTokenPage, alreadySubscribedPage,
-  adminLoginPage, adminPage, preferencesPage,
+  adminLoginPage, adminPage, preferencesPage, awardsPage,
 } from './pages';
 import { getDashboardHtml } from './dashboard';
-import { isValidEmail } from './utils';
+import { isValidEmail, parseAwardsBlock } from './utils';
 
 // ─── Cookie helpers ───────────────────────────────────────────────────────────
 
@@ -166,6 +167,17 @@ export default {
         getCaseCountPaged(env.DB, showCosts, showConsent),
       ]);
       return htmlResponse(homePage(cases, undefined, undefined, showCosts, showConsent, page, totalCount));
+    }
+
+    // GET /awards — Public awards & damages statistics page
+    if (request.method === 'GET' && url.pathname === '/awards') {
+      try {
+        const rows = await getCaseAwardRows(env.DB, 'ERA');
+        return htmlResponse(awardsPage(rows));
+      } catch (err) {
+        console.error(`Awards page error: ${err}`);
+        return htmlResponse(awardsPage([]));
+      }
     }
 
     // POST /subscribe — Handle sign-up form
@@ -762,17 +774,29 @@ export default {
               continue;
             }
 
-            const betterTitle = extractTitleFromSummary(summaryResult.summary, c.category);
+            // Strip AWARDS_DATA block before storing
+            const { awardsData, strippedSummary } = parseAwardsBlock(summaryResult.summary);
+            const betterTitle = extractTitleFromSummary(strippedSummary, c.category);
             const processedCase: ProcessedCase = {
               ...c,
               title: betterTitle || c.title,
-              summary: summaryResult.summary,
+              summary: strippedSummary,
               processedAt: new Date().toISOString(),
               source: 'ERA',
             };
 
             // Mark as seen immediately — no email to wait for
             await markCaseSeen(env.DB, processedCase, 'ERA');
+
+            // Store awards data if extracted
+            if (awardsData && c.pdfUrl) {
+              const pdfFilename = c.pdfUrl.split('/').pop() ?? '';
+              if (pdfFilename) {
+                await insertCaseAward(env.DB, pdfFilename, 'ERA', awardsData, 'prompt_structured')
+                  .catch(e => console.warn(`ERA Backfill: failed to insert awards for ${pdfFilename}: ${e}`));
+              }
+            }
+
             processed++;
             console.log(`ERA Backfill: stored ${c.caseId} (${betterTitle || c.title})`);
           } catch (err) {
@@ -796,6 +820,144 @@ export default {
         });
       } catch (err) {
         console.error(`ERA Backfill error: ${err}`);
+        return jsonResponse({ success: false, error: String(err) }, 500);
+      }
+    }
+
+    // ──────────────────────────────────────────────────────────────────────────
+    // POST /admin/dashboard/backfill-awards
+    //
+    // Extracts structured awards data from existing ERA summaries that have no
+    // entry in case_awards. Sends each summary to the LLM with a short targeted
+    // extraction prompt asking for JSON. Inserts results into case_awards.
+    //
+    // Query params:
+    //   limit  — Max cases to process per call (default 50, max 200)
+    //
+    // This is safe to call multiple times — it skips cases already extracted.
+    // ──────────────────────────────────────────────────────────────────────────
+    if (request.method === 'POST' && url.pathname === '/admin/dashboard/backfill-awards') {
+      const session = getAdminCookie(request);
+      if (session !== env.ADMIN_SECRET) {
+        return new Response('Unauthorized', { status: 401 });
+      }
+      try {
+        const limit = Math.min(parseInt(url.searchParams.get('limit') ?? '50', 10), 200);
+        const cases = await getCasesWithoutAwards(env.DB, 'ERA');
+        const toProcess = cases.slice(0, limit);
+
+        if (toProcess.length === 0) {
+          return jsonResponse({ success: true, processed: 0, failed: 0, message: 'All ERA cases already have awards data extracted.' });
+        }
+
+        const EXTRACTION_PROMPT = `You are a data extractor. From the employment case summary below, extract remedy and award information.
+
+Return ONLY a valid JSON object with these exact keys (no other text, no markdown fences):
+{
+  "hhd_amount": null or integer (NZD dollars for hurt/humiliation/distress award — NOT total compensation),
+  "lost_wages": null or integer (NZD dollars total for lost wages or wage compensation),
+  "weekly_wage": null or integer (NZD weekly wage if stated anywhere in the summary),
+  "lost_wages_weeks": null or number (weeks of salary the lost wages figure represents, if explicitly stated),
+  "costs_awarded": null or integer (NZD costs order if any),
+  "reinstatement": false or true,
+  "outcome": "applicant" or "respondent" or "mixed" or "none"
+}
+
+Rules:
+- Look in the REMEDY and OUTCOME sections
+- HHD = hurt, humiliation and distress (also called personal grievance compensation)
+- "outcome: applicant" means the employee/applicant succeeded; "respondent" means the employer succeeded
+- Use null (not 0) for amounts that are explicitly not awarded, nil, or not stated
+- Numbers must be plain integers — no $ signs, no commas
+- Return ONLY the raw JSON object`;
+
+        let processed = 0;
+        let failed = 0;
+
+        for (const c of toProcess) {
+          try {
+            const pdfFilename = c.pdf_filename;
+            if (!pdfFilename || !c.summary) { failed++; continue; }
+
+            // Call LLM for extraction
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 30000);
+            let jsonText: string;
+            try {
+              const resp = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+                method: 'POST',
+                signal: controller.signal,
+                headers: {
+                  'Content-Type': 'application/json',
+                  'Authorization': `Bearer ${env.OPENROUTER_API_KEY}`,
+                  'HTTP-Referer': 'https://whenroutinebiteshard.com',
+                  'X-Title': 'ERA Digest Awards Extraction',
+                },
+                body: JSON.stringify({
+                  model: env.OPENROUTER_MODEL,
+                  messages: [
+                    { role: 'system', content: EXTRACTION_PROMPT },
+                    { role: 'user', content: c.summary },
+                  ],
+                  max_tokens: 300,
+                }),
+              });
+              clearTimeout(timeoutId);
+              const json = await resp.json() as { choices?: Array<{ message: { content: string } }>; error?: { message: string } };
+              if (!resp.ok || json.error) throw new Error(json.error?.message ?? `HTTP ${resp.status}`);
+              jsonText = json.choices?.[0]?.message?.content?.trim() ?? '';
+            } finally {
+              clearTimeout(timeoutId);
+            }
+
+            // Robustly extract JSON from response (handles trailing text or code fences)
+            const jsonMatch = jsonText.match(/\{[\s\S]*\}/);
+            if (!jsonMatch) throw new Error(`No JSON in response: ${jsonText.slice(0, 100)}`);
+            const data = JSON.parse(jsonMatch[0]) as {
+              hhd_amount?: number | null;
+              lost_wages?: number | null;
+              weekly_wage?: number | null;
+              lost_wages_weeks?: number | null;
+              costs_awarded?: number | null;
+              reinstatement?: boolean;
+              outcome?: string | null;
+            };
+
+            // Derive weeks if not stated but both salary figures available
+            let weeksCalc = (typeof data.lost_wages_weeks === 'number') ? data.lost_wages_weeks : null;
+            if (!weeksCalc && data.lost_wages && data.weekly_wage && data.weekly_wage > 0) {
+              weeksCalc = Math.round((data.lost_wages / data.weekly_wage) * 10) / 10;
+            }
+
+            await insertCaseAward(env.DB, pdfFilename, 'ERA', {
+              hhd_amount: typeof data.hhd_amount === 'number' ? data.hhd_amount : null,
+              lost_wages: typeof data.lost_wages === 'number' ? data.lost_wages : null,
+              weekly_wage: typeof data.weekly_wage === 'number' ? data.weekly_wage : null,
+              lost_wages_weeks: weeksCalc,
+              costs_awarded: typeof data.costs_awarded === 'number' ? data.costs_awarded : null,
+              reinstatement: data.reinstatement === true,
+              outcome: (data.outcome as string | null) ?? null,
+            }, 'llm_backfill');
+
+            processed++;
+            console.log(`Awards backfill: extracted data for ${pdfFilename}`);
+          } catch (err) {
+            console.error(`Awards backfill: failed for ${c.pdf_filename}: ${err}`);
+            failed++;
+          }
+        }
+
+        return jsonResponse({
+          success: true,
+          found: cases.length,
+          processed,
+          failed,
+          message: processed > 0
+            ? `Extracted awards data for ${processed} case(s). ${failed > 0 ? `${failed} failed.` : ''}`
+            : `No cases processed. ${failed > 0 ? `${failed} failed.` : ''}`,
+        });
+      } catch (err) {
+        console.error(`Awards backfill error: ${err}`);
         return jsonResponse({ success: false, error: String(err) }, 500);
       }
     }
@@ -1276,6 +1438,9 @@ async function runDigest(env: Env, force = false, limit = 3): Promise<RunResult>
     // Steps 5 & 6: Summarise + store (only commit if successful)
     const usePdfPassthrough = env.USE_PDF_URL_PASSTHROUGH !== 'false';
     const processedCases: ProcessedCase[] = [];
+    // Map from pdf_filename → parsed awards data (populated during summarisation,
+    // inserted into case_awards after markCaseSeen succeeds)
+    const awardsMap = new Map<string, ReturnType<typeof parseAwardsBlock>['awardsData']>();
 
     for (const c of enrichedCases) {
       console.log(`ERA Digest: processing ${c.caseId} — ${c.title}`);
@@ -1305,12 +1470,20 @@ async function runDigest(env: Env, force = false, limit = 3): Promise<RunResult>
       // Failed cases are skipped and will be retried on next run
       if (success) {
         result.summarised++;
+
+        // Strip the AWARDS_DATA block before storing; keep awards data for later insert
+        const { awardsData, strippedSummary } = parseAwardsBlock(summary);
+        if (awardsData) {
+          const pdfFilename = c.pdfUrl?.split('/').pop() ?? '';
+          if (pdfFilename) awardsMap.set(pdfFilename, awardsData);
+        }
+
         // Extract better title from LLM summary if available
-        const betterTitle = extractTitleFromSummary(summary, c.category);
+        const betterTitle = extractTitleFromSummary(strippedSummary, c.category);
         const processedCase: ProcessedCase = {
           ...c,
           title: betterTitle || c.title,
-          summary,
+          summary: strippedSummary,
           processedAt: new Date().toISOString(),
           source: 'ERA',
         };
@@ -1337,12 +1510,25 @@ async function runDigest(env: Env, force = false, limit = 3): Promise<RunResult>
       // Only mark cases as seen after successful email dispatch
       for (const pc of processedCases) {
         await markCaseSeen(env.DB, pc, 'ERA');
+        // Insert awards data if available
+        const pdfFilename = pc.pdfUrl?.split('/').pop() ?? '';
+        const awards = awardsMap.get(pdfFilename);
+        if (awards) {
+          await insertCaseAward(env.DB, pdfFilename, 'ERA', awards, 'prompt_structured')
+            .catch(e => console.warn(`Failed to insert awards for ${pdfFilename}: ${e}`));
+        }
       }
     } else if (subscribers.length === 0 && processedCases.length > 0) {
       console.warn('ERA Digest: no active subscribers, but marking processed cases as seen for archive');
       // Still mark cases as seen even if no subscribers (for archival purposes)
       for (const pc of processedCases) {
         await markCaseSeen(env.DB, pc, 'ERA');
+        const pdfFilename = pc.pdfUrl?.split('/').pop() ?? '';
+        const awards = awardsMap.get(pdfFilename);
+        if (awards) {
+          await insertCaseAward(env.DB, pdfFilename, 'ERA', awards, 'prompt_structured')
+            .catch(e => console.warn(`Failed to insert awards for ${pdfFilename}: ${e}`));
+        }
       }
     } else {
       console.log('ERA Digest: no successful cases processed, skipping email');

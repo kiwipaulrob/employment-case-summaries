@@ -190,6 +190,98 @@ export function summaryToPageHtml(summary: string): string {
   return parts.join('\n');
 }
 
+// ─── Awards data extraction ───────────────────────────────────────────────────
+
+/**
+ * Structured remedy data extracted from an LLM-generated summary or backfill.
+ */
+export interface AwardsData {
+  hhd_amount: number | null;
+  lost_wages: number | null;
+  lost_wages_weeks: number | null;
+  weekly_wage: number | null;
+  costs_awarded: number | null;
+  reinstatement: boolean;
+  outcome: 'applicant' | 'respondent' | 'mixed' | 'none' | null;
+}
+
+/**
+ * Parses the AWARDS_DATA...AWARDS_DATA_END block appended by the ERA summariser prompt,
+ * returns the extracted structured data plus the summary with that block stripped out.
+ * If no block is found, awardsData is null and strippedSummary is unchanged.
+ */
+export function parseAwardsBlock(summary: string): { awardsData: AwardsData | null; strippedSummary: string } {
+  const START = 'AWARDS_DATA';
+  const END   = 'AWARDS_DATA_END';
+
+  const startIdx = summary.indexOf(START);
+  const endIdx   = summary.indexOf(END);
+
+  if (startIdx === -1 || endIdx === -1 || endIdx <= startIdx) {
+    return { awardsData: null, strippedSummary: summary };
+  }
+
+  const block          = summary.slice(startIdx + START.length, endIdx).trim();
+  const strippedSummary = (summary.slice(0, startIdx) + summary.slice(endIdx + END.length)).trim();
+
+  const awardsData: AwardsData = {
+    hhd_amount: null, lost_wages: null, lost_wages_weeks: null,
+    weekly_wage: null, costs_awarded: null, reinstatement: false, outcome: null,
+  };
+
+  for (const line of block.split('\n')) {
+    const colonIdx = line.indexOf(':');
+    if (colonIdx === -1) continue;
+    const key   = line.slice(0, colonIdx).trim().toLowerCase();
+    const value = line.slice(colonIdx + 1).trim();
+
+    switch (key) {
+      case 'hhd':              awardsData.hhd_amount    = parseDollarAmount(value); break;
+      case 'lost wages':       awardsData.lost_wages    = parseDollarAmount(value); break;
+      case 'weekly wage':      awardsData.weekly_wage   = parseDollarAmount(value); break;
+      case 'costs':            awardsData.costs_awarded = parseDollarAmount(value); break;
+      case 'lost wages weeks': {
+        const n = parseFloat(value.replace(/[^\d.]/g, ''));
+        awardsData.lost_wages_weeks = isNaN(n) ? null : Math.round(n * 10) / 10;
+        break;
+      }
+      case 'reinstatement':
+        awardsData.reinstatement = /^yes$/i.test(value.trim());
+        break;
+      case 'outcome': {
+        const v = value.trim().toLowerCase();
+        if (v === 'applicant' || v === 'respondent' || v === 'mixed' || v === 'none') {
+          awardsData.outcome = v as AwardsData['outcome'];
+        }
+        break;
+      }
+    }
+  }
+
+  // Derive weeks from dollar figures if not explicitly stated
+  if (
+    awardsData.lost_wages_weeks === null &&
+    awardsData.lost_wages !== null && awardsData.lost_wages > 0 &&
+    awardsData.weekly_wage !== null && awardsData.weekly_wage > 0
+  ) {
+    awardsData.lost_wages_weeks = Math.round((awardsData.lost_wages / awardsData.weekly_wage) * 10) / 10;
+  }
+
+  return { awardsData, strippedSummary };
+}
+
+/**
+ * Parses a dollar-amount string such as "$12,500" or "nil" into an integer (dollars) or null.
+ */
+export function parseDollarAmount(s: string): number | null {
+  if (!s) return null;
+  const trimmed = s.trim();
+  if (/^(nil|none|n\/a|not\s+stated|not\s+ordered|no\s+award|-)$/i.test(trimmed)) return null;
+  const match = trimmed.replace(/,/g, '').match(/\$?([\d]+(?:\.\d+)?)/);
+  if (!match) return null;
+  return Math.round(parseFloat(match[1]));
+}
+
 /**
  * Extracts a short excerpt from a structured LLM summary.
  * Tries to find the FACTS section; falls back to first non-label line.

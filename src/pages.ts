@@ -7,6 +7,7 @@
  */
 
 import type { DbSeenCase, DbSubscriber } from './types';
+import type { CaseAwardWithCase } from './db';
 import { toTitleCase, escapeHtml, decodeHtmlEntities, getSummaryExcerpt, summaryToPageHtml } from './utils';
 
 // ─── Shared design tokens ────────────────────────────────────────────────────
@@ -859,6 +860,248 @@ export function adminPage(subscribers: DbSubscriber[], stats: AdminStats): strin
 </div>`;
 
   return shell('Admin', body);
+}
+
+// ─── Awards & Damages page ────────────────────────────────────────────────────
+
+export function awardsPage(rows: CaseAwardWithCase[]): string {
+  // ── Stat helpers ──────────────────────────────────────────────────────────
+  function median(arr: number[]): number | null {
+    if (arr.length === 0) return null;
+    const sorted = [...arr].sort((a, b) => a - b);
+    const mid = Math.floor(sorted.length / 2);
+    return sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid];
+  }
+  function avg(arr: number[]): number | null {
+    if (arr.length === 0) return null;
+    return Math.round(arr.reduce((a, b) => a + b, 0) / arr.length);
+  }
+  function fmtDollar(n: number | null | undefined): string {
+    if (n === null || n === undefined || n === 0) return '—';
+    return '$' + n.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  }
+  function fmtWeeks(n: number | null | undefined): string {
+    if (n === null || n === undefined || n === 0) return '—';
+    return n % 1 === 0 ? `${n} wks` : `${n.toFixed(1)} wks`;
+  }
+
+  // ── Compute stats ─────────────────────────────────────────────────────────
+  const hhdArr   = rows.filter(r => r.hhd_amount   != null && r.hhd_amount   > 0).map(r => r.hhd_amount!);
+  const wagesArr = rows.filter(r => r.lost_wages    != null && r.lost_wages   > 0).map(r => r.lost_wages!);
+  const weeksArr = rows.filter(r => r.lost_wages_weeks != null && r.lost_wages_weeks > 0).map(r => r.lost_wages_weeks!);
+
+  const statsHHD   = { avg: avg(hhdArr), median: median(hhdArr), max: hhdArr.length ? Math.max(...hhdArr) : null, count: hhdArr.length };
+  const statsWages = { avg: avg(wagesArr), median: median(wagesArr), max: wagesArr.length ? Math.max(...wagesArr) : null, count: wagesArr.length };
+  const statsWeeks = { avg: weeksArr.length ? Math.round((weeksArr.reduce((a,b)=>a+b,0)/weeksArr.length)*10)/10 : null, max: weeksArr.length ? Math.max(...weeksArr) : null };
+
+  const reinstatementCount = rows.filter(r => r.reinstatement === 1).length;
+  const applicantWins  = rows.filter(r => r.outcome === 'applicant').length;
+  const respondentWins = rows.filter(r => r.outcome === 'respondent').length;
+  const mixedOutcomes  = rows.filter(r => r.outcome === 'mixed').length;
+  const total = rows.length;
+
+  // ── HHD distribution chart ─────────────────────────────────────────────────
+  const buckets = [
+    { label: 'Nil', count: rows.filter(r => !r.hhd_amount || r.hhd_amount === 0).length },
+    { label: '$1–5k',  count: hhdArr.filter(n => n >= 1    && n <= 5000 ).length },
+    { label: '$5–10k', count: hhdArr.filter(n => n > 5000  && n <= 10000).length },
+    { label: '$10–20k',count: hhdArr.filter(n => n > 10000 && n <= 20000).length },
+    { label: '$20–40k',count: hhdArr.filter(n => n > 20000 && n <= 40000).length },
+    { label: '$40k+',  count: hhdArr.filter(n => n > 40000).length },
+  ];
+  const maxBucketCount = Math.max(...buckets.map(b => b.count), 1);
+  const chartH = 160;
+  const barW = 52;
+  const gap = 18;
+  const leftPad = 28;
+  const topPad = 24;
+  const svgW = leftPad + buckets.length * (barW + gap) - gap + 4;
+  const svgH = chartH + topPad + 38;
+
+  const chartBars = buckets.map((b, i) => {
+    const h = Math.max(Math.round((b.count / maxBucketCount) * chartH), b.count > 0 ? 4 : 0);
+    const x = leftPad + i * (barW + gap);
+    const y = topPad + chartH - h;
+    const fill = b.count === 0 ? '#e2e8f0' : (i === 0 ? '#94a3b8' : '#1d4ed8');
+    return `
+  <rect x="${x}" y="${y}" width="${barW}" height="${h}" fill="${fill}" rx="3"/>
+  ${b.count > 0 ? `<text x="${x + barW / 2}" y="${y - 6}" text-anchor="middle" font-size="12" fill="#374151" font-weight="600">${b.count}</text>` : ''}
+  <text x="${x + barW / 2}" y="${topPad + chartH + 16}" text-anchor="middle" font-size="11" fill="#64748b">${b.label}</text>`;
+  }).join('');
+
+  const chart = `
+<svg viewBox="0 0 ${svgW} ${svgH}" width="${svgW}" height="${svgH}" style="overflow:visible;display:block;">
+  <text x="10" y="${topPad + chartH / 2}" text-anchor="middle" font-size="10" fill="#94a3b8"
+    transform="rotate(-90,10,${topPad + chartH / 2})">Cases</text>
+  ${chartBars}
+</svg>`;
+
+  // ── Case table ─────────────────────────────────────────────────────────────
+  const outcomeLabel: Record<string, string> = {
+    applicant: 'Applicant ✓', respondent: 'Respondent ✓', mixed: 'Mixed', none: '—',
+  };
+  const outcomeColor: Record<string, string> = {
+    applicant: `color:${COLORS.success};font-weight:600;`,
+    respondent: `color:${COLORS.error};font-weight:600;`,
+    mixed: 'color:#b45309;font-weight:600;',
+    none: `color:${COLORS.muted};`,
+  };
+
+  const tableRows = rows.map(r => {
+    const title = toTitleCase(decodeHtmlEntities(r.title));
+    const citation = r.category ? escapeHtml(r.category) : '';
+    const outcome = r.outcome ?? 'none';
+    return `<tr>
+  <td style="font-weight:500;">${escapeHtml(title)}${citation ? `<br><span style="font-size:12px;color:${COLORS.muted};">${citation}</span>` : ''}</td>
+  <td style="text-align:right;">${fmtDollar(r.hhd_amount)}</td>
+  <td style="text-align:right;">${fmtDollar(r.lost_wages)}</td>
+  <td style="text-align:right;">${fmtWeeks(r.lost_wages_weeks)}</td>
+  <td style="text-align:right;">${fmtDollar(r.costs_awarded)}</td>
+  <td style="text-align:center;">${r.reinstatement ? '✓' : '—'}</td>
+  <td style="${outcomeColor[outcome] ?? ''}">${outcomeLabel[outcome] ?? '—'}</td>
+  <td style="font-size:12px;">${r.pdf_url ? `<a href="${escapeHtml(r.pdf_url)}" target="_blank" rel="noopener">PDF</a>` : '—'}</td>
+</tr>`;
+  }).join('\n');
+
+  const emptyState = total === 0
+    ? `<div style="text-align:center;padding:48px 0;color:${COLORS.muted};">
+        <p style="font-size:32px;margin-bottom:12px;">📊</p>
+        <p style="font-size:16px;">No awards data yet.</p>
+        <p style="font-size:14px;margin-top:8px;">Awards are extracted automatically from new ERA determinations, or can be backfilled from the admin dashboard.</p>
+      </div>`
+    : '';
+
+  const extraCss = `
+  .awards-stats { display:grid; grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); gap:12px; margin-bottom:32px; }
+  .awards-stat { background:${COLORS.white}; border:1px solid ${COLORS.border}; border-radius:10px; padding:16px 18px; }
+  .awards-stat-value { font-size:24px; font-weight:700; color:${COLORS.navy}; line-height:1.1; margin-bottom:4px; }
+  .awards-stat-label { font-size:12px; color:${COLORS.muted}; }
+  .awards-section { background:${COLORS.white}; border:1px solid ${COLORS.border}; border-radius:10px; padding:24px; margin-bottom:24px; }
+  .awards-section h2 { font-size:16px; font-weight:700; color:${COLORS.navy}; margin-bottom:16px; }
+  .awards-table { width:100%; border-collapse:collapse; font-size:13px; }
+  .awards-table th { text-align:left; padding:8px 10px; font-size:11px; font-weight:600; text-transform:uppercase;
+    letter-spacing:0.4px; color:${COLORS.muted}; border-bottom:2px solid ${COLORS.border}; background:${COLORS.bg}; white-space:nowrap; }
+  .awards-table th.right { text-align:right; }
+  .awards-table th.center { text-align:center; }
+  .awards-table td { padding:10px 10px; border-bottom:1px solid ${COLORS.border}; vertical-align:middle; }
+  .awards-table tr:last-child td { border-bottom:none; }
+  .awards-table tr:hover td { background:#f8faff; }
+  .stat-row-label { font-size:13px; font-weight:600; color:${COLORS.navy}; margin-bottom:10px; }
+  @media(max-width:600px){ .awards-stats{grid-template-columns:1fr 1fr;} .awards-table{font-size:12px;} }
+  `;
+
+  const body = `
+<div class="page-content">
+  <div class="container">
+    <div class="hero" style="margin-bottom:32px;">
+      <h1>Awards &amp; Damages</h1>
+      <p>Remedy data extracted from ERA determinations. ${total > 0 ? `${total} case${total !== 1 ? 's' : ''} analysed.` : 'No data yet.'}</p>
+    </div>
+
+    ${total === 0 ? emptyState : `
+    <!-- HHD stats -->
+    <p class="stat-row-label">Hurt, humiliation &amp; distress</p>
+    <div class="awards-stats">
+      <div class="awards-stat">
+        <div class="awards-stat-value">${fmtDollar(statsHHD.avg)}</div>
+        <div class="awards-stat-label">Average HHD</div>
+      </div>
+      <div class="awards-stat">
+        <div class="awards-stat-value">${fmtDollar(statsHHD.median)}</div>
+        <div class="awards-stat-label">Median HHD</div>
+      </div>
+      <div class="awards-stat">
+        <div class="awards-stat-value">${fmtDollar(statsHHD.max)}</div>
+        <div class="awards-stat-label">Highest HHD</div>
+      </div>
+      <div class="awards-stat">
+        <div class="awards-stat-value">${statsHHD.count}</div>
+        <div class="awards-stat-label">Cases with HHD award</div>
+      </div>
+    </div>
+
+    <!-- Lost wages stats -->
+    <p class="stat-row-label">Lost wages</p>
+    <div class="awards-stats">
+      <div class="awards-stat">
+        <div class="awards-stat-value">${fmtDollar(statsWages.avg)}</div>
+        <div class="awards-stat-label">Average lost wages</div>
+      </div>
+      <div class="awards-stat">
+        <div class="awards-stat-value">${fmtDollar(statsWages.median)}</div>
+        <div class="awards-stat-label">Median lost wages</div>
+      </div>
+      <div class="awards-stat">
+        <div class="awards-stat-value">${statsWeeks.avg !== null ? statsWeeks.avg.toFixed(1) + ' wks' : '—'}</div>
+        <div class="awards-stat-label">Avg weeks of salary</div>
+      </div>
+      <div class="awards-stat">
+        <div class="awards-stat-value">${statsWeeks.max !== null ? statsWeeks.max.toFixed(1) + ' wks' : '—'}</div>
+        <div class="awards-stat-label">Highest weeks of salary</div>
+      </div>
+    </div>
+
+    <!-- Outcomes -->
+    <p class="stat-row-label">Outcomes</p>
+    <div class="awards-stats" style="margin-bottom:32px;">
+      <div class="awards-stat">
+        <div class="awards-stat-value" style="color:${COLORS.success};">${applicantWins}</div>
+        <div class="awards-stat-label">Applicant wins</div>
+      </div>
+      <div class="awards-stat">
+        <div class="awards-stat-value" style="color:${COLORS.error};">${respondentWins}</div>
+        <div class="awards-stat-label">Respondent wins</div>
+      </div>
+      <div class="awards-stat">
+        <div class="awards-stat-value" style="color:#b45309;">${mixedOutcomes}</div>
+        <div class="awards-stat-label">Mixed outcomes</div>
+      </div>
+      <div class="awards-stat">
+        <div class="awards-stat-value">${reinstatementCount}</div>
+        <div class="awards-stat-label">Reinstatement orders</div>
+      </div>
+    </div>
+
+    <!-- HHD Distribution chart -->
+    <div class="awards-section">
+      <h2>HHD award distribution</h2>
+      <div style="overflow-x:auto;padding-bottom:4px;">
+        ${chart}
+      </div>
+      <p style="font-size:12px;color:${COLORS.muted};margin-top:12px;">Distribution of hurt, humiliation &amp; distress awards across ${total} ERA cases.</p>
+    </div>
+
+    <!-- Case detail table -->
+    <div class="awards-section" style="overflow-x:auto;">
+      <h2>Case detail</h2>
+      <table class="awards-table">
+        <thead>
+          <tr>
+            <th>Case</th>
+            <th class="right">HHD</th>
+            <th class="right">Lost wages</th>
+            <th class="right">Weeks</th>
+            <th class="right">Costs</th>
+            <th class="center">Reinstate</th>
+            <th>Outcome</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          ${tableRows}
+        </tbody>
+      </table>
+    </div>
+    `}
+
+    <p style="font-size:12px;color:${COLORS.muted};margin-top:8px;">
+      Data is AI-extracted from case summaries. Figures should be verified against the full determination before relying on them.
+      Awards data covers ERA determinations only.
+    </p>
+  </div>
+</div>`;
+
+  return shell('Awards & Damages', body, extraCss);
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────

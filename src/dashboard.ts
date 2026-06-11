@@ -300,7 +300,7 @@ export function getDashboardHtml(status: {
       <button class="tab-btn" type="button" onclick="switchTab(event, 'analytics')">Analytics</button>
       <button class="tab-btn" type="button" onclick="switchTab(event, 'prompts')">Prompts</button>
       <button class="tab-btn" type="button" onclick="switchTab(event, 'rescan')">Rescan</button>
-      <button class="tab-btn" type="button" onclick="switchTab(event, 'era-backfill')">ERA Backfill</button>
+      <button class="tab-btn" type="button" onclick="switchTab(event, 'awards')">Awards</button>
     </div>
 
     <!-- Digest Controls Tab -->
@@ -376,7 +376,7 @@ export function getDashboardHtml(status: {
             <div class="dropzone" id="dropzone" ondragover="dragOver(event)" ondragleave="dragLeave(event)" ondrop="drop(event)">
               <p>📄 Drag and drop your PDF here</p>
               <p style="font-size: 0.9rem; color: #999;">or click to browse</p>
-              <input type="file" id="pdf-input" name="file" accept=".pdf" multiple style="display:none;" onchange="fileSelected()">
+              <input type="file" id="pdf-input" name="file" accept=".pdf" style="display:none;" onchange="fileSelected()">
             </div>
             <small style="display: block; margin-top: 0.5rem;">Selected: <span id="file-name">None</span></small>
             <small style="display: block; margin-top: 0.25rem; color: #888;">PDF URL is auto-derived from the filename (employmentcourt.govt.nz/assets/Documents/Decisions/…)</small>
@@ -432,14 +432,13 @@ export function getDashboardHtml(status: {
             <label for="prompt-era"><strong>ERA Determinations Prompt</strong></label>
             <textarea id="prompt-era" name="prompt_era" style="min-height: 300px; font-family: monospace; font-size: 0.9rem; padding: 0.75rem; border: 1px solid #ddd; border-radius: 4px; width: 100%; box-sizing: border-box;"></textarea>
             <div style="margin-top: 0.5rem; padding: 1rem; background: #f0f5f2; border-left: 4px solid #4f6f52; border-radius: 4px;">
-              <strong>📋 Prompt Structure Reference</strong>
-              <p style="margin: 0.5rem 0 0 0; font-size: 13px; color: #555;">This shows the expected section format the LLM should output. Your prompt should instruct the model to produce summaries in this structure.</p>
+              <strong>💡 Format Guide:</strong>
               <ul style="margin: 0.5rem 0 0 0; padding-left: 1.5rem;">
-                <li>PARTIES, REPRESENTATIVES, FACTS, LEGAL ISSUES, HOW THE ISSUES WERE RESOLVED, OUTCOME, REMEDY</li>
-                <li>Numbered lists for issues and resolutions (1., 2., 3.)</li>
-                <li>Include status flags per issue: (Established), (Dismissed), (Not reached)</li>
-                <li>Anti-hallucination rule: representative names must be exact from document</li>
-                <li>Completeness check before submitting: verify all issues captured</li>
+                <li>Keep under 350 words for brevity</li>
+                <li>Use sections: PARTIES, REPRESENTATIVES, FACTS, LEGAL ISSUES, HOW THE ISSUES WERE RESOLVED, OUTCOME, REMEDY</li>
+                <li>Use numbered lists for issues and resolutions</li>
+                <li>Prioritize brevity over exhaustive completeness</li>
+                <li>Include anti-hallucination instructions for representative names</li>
               </ul>
             </div>
           </div>
@@ -448,14 +447,13 @@ export function getDashboardHtml(status: {
             <label for="prompt-ec"><strong>Employment Court Judgments Prompt</strong></label>
             <textarea id="prompt-ec" name="prompt_ec" style="min-height: 300px; font-family: monospace; font-size: 0.9rem; padding: 0.75rem; border: 1px solid #ddd; border-radius: 4px; width: 100%; box-sizing: border-box;"></textarea>
             <div style="margin-top: 0.5rem; padding: 1rem; background: #f0f5f2; border-left: 4px solid #4f6f52; border-radius: 4px;">
-              <strong>📋 Prompt Structure Reference</strong>
-              <p style="margin: 0.5rem 0 0 0; font-size: 13px; color: #555;">This shows the expected section format the LLM should output. Your prompt should instruct the model to produce summaries in this structure.</p>
+              <strong>💡 Format Guide:</strong>
               <ul style="margin: 0.5rem 0 0 0; padding-left: 1.5rem;">
-                <li>JUDGE & DATE, PARTIES, REPRESENTATIVES, FACTS, ERA FINDINGS, EMPLOYMENT COURT ISSUES RAISED, HOW THE EMPLOYMENT COURT ISSUES WERE RESOLVED, OUTCOME & REMEDY</li>
+                <li>Keep under 350 words for brevity</li>
+                <li>Use 7 sections: JUDGE & DATE, PARTIES, REPRESENTATIVES, FACTS, ERA FINDINGS, EMPLOYMENT COURT ISSUES RAISED, HOW THE EMPLOYMENT COURT ISSUES WERE RESOLVED, OUTCOME & REMEDY</li>
                 <li>Do NOT include [JUDGMENT ON APPEAL] or similar flags</li>
                 <li>No preamble text before structured output</li>
                 <li>Start immediately with JUDGE & DATE</li>
-                <li>Include status flags per issue: (Upheld in appeal), (Dismissed on appeal), (Not reached)</li>
               </ul>
             </div>
           </div>
@@ -488,43 +486,29 @@ export function getDashboardHtml(status: {
         </div>
       </div>
     </div>
-    <div id="era-backfill" class="tab-content">
+
+    <!-- Awards Tab -->
+    <div id="awards" class="tab-content">
       <div class="card">
-        <div class="card-title">ERA Backfill — Multi-Page Scrape</div>
-        <p style="color: #666; margin-bottom: 1.5rem;">Scrape the ERA listing pages to find and summarise cases not yet in the database. No email is sent — purely for populating the archive.</p>
+        <div class="card-title">Awards Data Extraction</div>
+        <p style="color: #666; margin-bottom: 1.5rem;">
+          Extract structured remedy data (HHD, lost wages, weekly wage, costs, outcome) from existing ERA summaries.
+          New cases processed via the pipeline will have awards data extracted automatically.
+          Use this to backfill historical cases.
+        </p>
 
-        <div>
-          <div class="form-group">
-            <label for="backfill-pages">Number of pages to scrape</label>
-            <input type="number" id="backfill-pages" name="pages" min="1" max="10" value="3">
-            <small>Each page covers ~10 cases. 3 pages = approximately the last 10 days of ERA determinations.</small>
-          </div>
-
-          <div style="margin-top: 1.5rem;">
-            <button type="button" class="button" onclick="backfillEraPages()">Backfill Now</button>
-          </div>
-
-          <div id="backfill-status" style="margin-top: 1rem;"></div>
+        <div class="form-group">
+          <label for="awards-limit">Max cases to process per run</label>
+          <input type="number" id="awards-limit" min="1" max="200" value="50">
+          <small>Only cases without existing awards data will be processed. Safe to run multiple times.</small>
         </div>
-      </div>
 
-      <div class="card" style="margin-top: 1.5rem;">
-        <div class="card-title">ERA Backfill — Single Case by URL</div>
-        <p style="color: #666; margin-bottom: 1.5rem;">Process a single ERA case by pasting its PDF URL directly. Useful for older cases no longer on the listing page.</p>
-
-        <div>
-          <div class="form-group">
-            <label for="era-pdf-url">ERA PDF URL</label>
-            <input type="text" id="era-pdf-url" name="pdfUrl" placeholder="https://determinations.era.govt.nz/assets/Uploads/...pdf" style="width: 100%;">
-            <small>Must be a valid ERA determination PDF URL.</small>
-          </div>
-
-          <div style="margin-top: 1.5rem;">
-            <button type="button" class="button" onclick="processEraUrl()">Process Case</button>
-          </div>
-
-          <div id="era-url-status" style="margin-top: 1rem;"></div>
+        <div style="display: flex; gap: 1rem; margin-top: 1.5rem;">
+          <button type="button" class="button" onclick="backfillAwards()">Extract Awards from All Cases</button>
+          <a href="/awards" target="_blank" class="button" style="background:#fff;color:#333;border:1px solid #ccc;text-decoration:none;">View Public Awards Page ↗</a>
         </div>
+
+        <div id="awards-status" style="margin-top: 1.5rem;"></div>
       </div>
     </div>
   </div>
@@ -562,9 +546,7 @@ export function getDashboardHtml(status: {
       const input = document.getElementById('pdf-input');
       const fileName = document.getElementById('file-name');
       if (input.files.length > 0) {
-        fileName.textContent = input.files.length === 1
-          ? input.files[0].name
-          : input.files.length + ' files selected';
+        fileName.textContent = input.files[0].name;
       } else {
         fileName.textContent = 'None';
       }
@@ -585,69 +567,56 @@ export function getDashboardHtml(status: {
         return;
       }
 
-      const totalFiles = fileInput.files.length;
-      for (let f = 0; f < totalFiles; f++) {
-        const file = fileInput.files[f];
-        const filename = file.name;
-        let lastError = null;
+      const file = fileInput.files[0];
+      const filename = file.name;
       
-        try {
-          status.className = 'upload-status show alert alert-info';
-          status.textContent = '⏳ [' + (f+1) + '/' + totalFiles + '] Reading ' + filename + '...';
+      try {
+        status.className = 'upload-status show alert alert-info';
+        status.textContent = '⏳ Reading PDF and extracting text...';
 
-          // Read file as ArrayBuffer
-          const arrayBuffer = await new Promise((resolve, reject) => {
-            const reader = new FileReader();
-            reader.onload = () => resolve(reader.result);
-            reader.onerror = reject;
-            reader.readAsArrayBuffer(file);
-          });
+        // Read file as ArrayBuffer
+        const arrayBuffer = await new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result);
+          reader.onerror = reject;
+          reader.readAsArrayBuffer(file);
+        });
 
-          // Determine endpoint based on file type
-          const url = new URL('/admin/upload-ec-case', window.location.origin);
-          url.searchParams.set('filename', filename);
+        // Determine endpoint based on file type
+        // For now, always use the text-based endpoint with pdfminer extraction
+        const url = new URL('/admin/upload-ec-case', window.location.origin);
+        url.searchParams.set('filename', filename);
 
-          status.textContent = '⏳ [' + (f+1) + '/' + totalFiles + '] Summarising ' + filename + '...';
+        status.textContent = '⏳ Uploading and summarising...';
 
-          const response = await fetch(url.toString(), {
-            method: 'POST',
-            body: arrayBuffer,
-            headers: {
-              'Content-Type': 'application/pdf',
-            },
-            credentials: 'same-origin'
-          });
+        const response = await fetch(url.toString(), {
+          method: 'POST',
+          body: arrayBuffer,
+          headers: {
+            'Content-Type': 'application/pdf',
+          },
+          credentials: 'same-origin'
+        });
 
-          if (!response.ok) {
-            const error = await response.text();
-            throw new Error(error || 'Upload failed');
-          }
-
-          const result = await response.json();
-          if (f === totalFiles - 1) {
-            status.className = 'upload-status show alert alert-success';
-            status.innerHTML = '<strong>✓ ' + (totalFiles > 1 ? filename : 'Case') + ' uploaded successfully!</strong><br>The case has been summarised and stored in the database.';
-          }
-          
-          if (totalFiles > 1) {
-            status.className = 'upload-status show alert alert-info';
-          }
-        } catch (err) {
-          lastError = err;
-          status.className = 'upload-status show alert alert-error';
-          status.textContent = '❌ [' + (f+1) + '/' + totalFiles + '] ' + filename + ': ' + err.message;
+        if (!response.ok) {
+          const error = await response.text();
+          throw new Error(error || 'Upload failed');
         }
+
+        const result = await response.json();
+        status.className = 'upload-status show alert alert-success';
+        status.innerHTML = '<strong>✓ Case uploaded successfully!</strong><br>The case has been summarised and stored in the database.';
         
-        // Final status after all files
-        if (f === totalFiles - 1) {
-          if (lastError) {
-            status.className = 'upload-status show alert alert-error';
-            status.textContent = '❌ Error: ' + lastError.message;
-          } else if (totalFiles > 1) {
-            status.className = 'upload-status show alert alert-success';
-            status.innerHTML = '<strong>✓ All ' + totalFiles + ' cases uploaded successfully!</strong>';
-          }
-        }
+        // Reset form
+        e.target.reset();
+        document.getElementById('file-name').textContent = 'None';
+        
+        setTimeout(() => {
+          status.classList.remove('show');
+        }, 5000);
+      } catch (err) {
+        status.className = 'upload-status show alert alert-error';
+        status.textContent = '❌ Error: ' + err.message;
       }
     });
 
@@ -783,82 +752,24 @@ export function getDashboardHtml(status: {
       }
     }
 
-    // Option A — ERA multi-page backfill (added 8 June 2026)
-    // Scrapes up to 3 ERA listing pages, finds unseen cases, summarises & stores them.
-    // No email is sent — purely for populating the archive database.
-    async function backfillEraPages() {
-      const statusEl = document.getElementById('backfill-status');
-      const pages = document.getElementById('backfill-pages').value;
-      statusEl.innerHTML = '⏳ Scraping ' + pages + ' page(s) of ERA listings...';
+    // Handle awards backfill
+    async function backfillAwards() {
+      const statusEl = document.getElementById('awards-status');
+      const limit = document.getElementById('awards-limit').value;
       statusEl.className = '';
+      statusEl.innerHTML = '⏳ Extracting awards data for up to ' + limit + ' cases — this may take a minute...';
 
       try {
-        const response = await fetch('/admin/dashboard/backfill-era?pages=' + pages, {
+        const response = await fetch('/admin/dashboard/backfill-awards?limit=' + limit, {
           method: 'POST',
           credentials: 'same-origin',
         });
 
-        const data = await response.json();
-        if (!response.ok) throw new Error(data.error || 'Request failed');
-
+        if (!response.ok) throw new Error(await response.text());
+        const result = await response.json();
         statusEl.className = 'alert alert-success';
-        statusEl.innerHTML =
-          '<strong>✓ Backfill complete!</strong><br>' +
-          'Pages scraped: <strong>' + data.pages_scraped + '</strong> &nbsp;|&nbsp; ' +
-          'Cases found: <strong>' + data.found + '</strong> &nbsp;|&nbsp; ' +
-          'New: <strong>' + data.new_cases + '</strong> &nbsp;|&nbsp; ' +
-          'Processed: <strong>' + data.processed + '</strong>' +
-          (data.failed > 0 ? ' &nbsp;|&nbsp; Failed: <strong style="color:red">' + data.failed + '</strong>' : '') +
-          '<br><small style="color:#555">' + data.message + '</small>';
-      } catch (err) {
-        statusEl.className = 'alert alert-error';
-        statusEl.innerHTML = '<strong>❌ Error:</strong> ' + err.message;
-      }
-    }
-
-    // Option C — Process a single ERA case by pasting its PDF URL (added 8 June 2026)
-    // For cases older than ~10 days that are no longer on the ERA listing.
-    // No email is sent — purely for populating the archive database.
-    async function processEraUrl() {
-      const statusEl = document.getElementById('era-url-status');
-      const pdfUrl = document.getElementById('era-pdf-url').value.trim();
-
-      if (!pdfUrl) {
-        statusEl.className = 'alert alert-error';
-        statusEl.innerHTML = '❌ Please enter a PDF URL.';
-        return;
-      }
-
-      statusEl.innerHTML = '⏳ Downloading and summarising case...';
-      statusEl.className = '';
-
-      try {
-        const response = await fetch('/admin/dashboard/upload-era-url', {
-          method: 'POST',
-          credentials: 'same-origin',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ pdfUrl }),
-        });
-
-        const data = await response.json();
-
-        if (data.already_exists) {
-          statusEl.className = 'alert alert-info';
-          statusEl.innerHTML = 'ℹ️ ' + data.message;
-          return;
-        }
-
-        if (!response.ok || !data.success) throw new Error(data.error || 'Request failed');
-
-        statusEl.className = 'alert alert-success';
-        statusEl.innerHTML =
-          '<strong>✓ Case processed and stored!</strong><br>' +
-          'Title: <strong>' + (data.title || data.pdfFilename) + '</strong><br>' +
-          (data.category ? 'Citation: ' + data.category + '<br>' : '') +
-          '<small style="color:#555">' + data.message + '</small>';
-
-        // Clear the URL input
-        document.getElementById('era-pdf-url').value = '';
+        statusEl.innerHTML = '<strong>✓ Done!</strong> ' + (result.message || JSON.stringify(result));
+        setTimeout(() => { statusEl.innerHTML = ''; statusEl.className = ''; }, 8000);
       } catch (err) {
         statusEl.className = 'alert alert-error';
         statusEl.innerHTML = '<strong>❌ Error:</strong> ' + err.message;
