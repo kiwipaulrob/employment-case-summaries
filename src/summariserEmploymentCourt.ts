@@ -14,7 +14,7 @@
 import type { CaseListing, OpenRouterRequest, OpenRouterResponse, SummaryResult } from './types';
 import type { PdfContent } from './pdf';
 import { truncateToTokenBudget } from './pdf';
-import { stripLlmArtifacts } from './utils';
+import { sleep, stripLlmArtifacts } from './utils';
 
 const OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1/chat/completions';
 
@@ -327,8 +327,4 @@ export async function summariseEmploymentCourtCase(
 
 // ─── Helper ───────────────────────────────────────────────────────────────
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-// stripLlmArtifacts is imported from ./utils (shared with ERA summariser)
+// sleep is imported from ./utils (shared with ERA summariser)

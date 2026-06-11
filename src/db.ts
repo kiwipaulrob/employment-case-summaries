@@ -439,9 +439,9 @@ export async function addSubscriberPending(
     return { token: existing.unsubscribe_token ?? '', alreadyActive: true };
   }
   
-  const { generateToken } = await import('./utils');
-  const confirmToken = generateToken();
-  const unsubscribeToken = generateToken();
+  // generateToken() was just a wrapper for crypto.randomUUID(); call it directly to avoid the dynamic import
+  const confirmToken = crypto.randomUUID();
+  const unsubscribeToken = crypto.randomUUID();
   
   await addPendingSubscriber(db, email, name, confirmToken, unsubscribeToken);
   return { token: confirmToken, alreadyActive: false };
