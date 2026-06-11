@@ -1845,20 +1845,29 @@ function extractTitleFromSummary(summary: string, citation?: string | null): str
       const eraLine = lines[j].trim();
       if (!eraLine || eraLine.match(/^---/)) continue;
 
+      // Stop at any all-caps section header (with OR without trailing colon).
+      // e.g. "REPRESENTATIVES", "FACTS", "LEGAL ISSUES" — these don't have
+      // colons in the structured summary format, so the old check (/^[A-Z &]{4,}:/)
+      // missed them, causing the loop to read into the REPRESENTATIVES section
+      // and overwrite correctly-extracted party names with counsel names.
+      if (eraLine.match(/^[A-Z][A-Z &]{3,}:?$/)) break;
+      if (eraLine.match(/^[A-Z &]{4,}:/)) break;
+
       const appMatch = eraLine.match(/^Applicant:\s*(.+)/i);
       if (appMatch) {
         applicantName = cleanPartyName(appMatch[1]);
+        // Early exit once both names are found — don't read further into
+        // REPRESENTATIVES or other sections.
+        if (respondentName) break;
         continue;
       }
 
       const respMatch = eraLine.match(/^Respondent:\s*(.+)/i);
       if (respMatch) {
         respondentName = cleanPartyName(respMatch[1]);
+        if (applicantName) break; // both found — stop immediately
         continue;
       }
-
-      // Stop if we reach the next all-caps section header
-      if (eraLine.match(/^[A-Z &]{4,}:/)) break;
     }
 
     if (applicantName && respondentName) {
