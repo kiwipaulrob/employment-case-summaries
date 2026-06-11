@@ -732,7 +732,7 @@ export function getDashboardHtml(status: {
             + '<span style="color: #999; margin-left: 0.75rem; font-size: 0.82rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 320px; display: inline-block; vertical-align: middle;">'
             + escHtml(v.preview) + '</span>'
             + '</div>'
-            + '<button onclick="revertPrompt(\'' + key + '\', ' + v.id + ')" '
+            + '<button data-key="' + key + '" data-id="' + v.id + '" onclick="revertPrompt(this.dataset.key, this.dataset.id)" '
             + 'style="flex-shrink: 0; margin-left: 0.75rem; font-size: 0.8rem; padding: 0.25rem 0.7rem; background: #4f6f52; color: white; border: none; border-radius: 4px; cursor: pointer;">Revert</button>'
             + '</div>';
         }).join('');
