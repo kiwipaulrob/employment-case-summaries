@@ -32,12 +32,42 @@ These secrets are stored **only in Cloudflare's secure vault**, not in your repo
 
 ### If Secrets Are Accidentally Exposed
 
-1. **Delete the commit** from the public branch (force-push if necessary)
-2. **Rotate all compromised secrets immediately**:
-   - Create a new OpenRouter API key at https://openrouter.ai/
-   - Change the admin password to a new strong value
-   - Update the secrets via `wrangler secret put`
-3. **Invalidate cached credentials**: No additional action needed in Cloudflare
+⚠️ **Immediate action required** if any secret is exposed in logs, chat history, or public sources:
+
+#### Rotation Checklist
+
+1. **Delete the exposure** (commit, chat history, log file, etc.)
+   - If in Git: `git revert <commit>` or force-push to remove
+   - If in Tasklet: Session history may be truncated automatically, but assume the secret is compromised
+
+2. **Rotate compromised secrets immediately**:
+   ```bash
+   # For OpenRouter API key exposure:
+   # 1. Log in to https://openrouter.ai/account/billing/keys
+   # 2. Revoke the old key
+   # 3. Generate a new key
+   # 4. Run: wrangler secret put OPENROUTER_API_KEY
+   
+   # For ADMIN_SECRET exposure:
+   # 1. Generate a new strong password (openssl rand -base64 24)
+   # 2. Run: wrangler secret put ADMIN_SECRET
+   # 3. Run: wrangler deploy
+   
+   # For GitHub token in secrets:
+   # 1. Revoke at https://github.com/settings/tokens
+   # 2. Generate a new personal access token
+   # 3. Update in GitHub repo secrets settings
+   ```
+
+3. **Verify the rotation**:
+   - Test the worker endpoint with a manual cron trigger
+   - Check that email sending still works
+   - Verify admin login works with new password
+
+4. **Monitor for misuse**:
+   - Review Cloudflare API usage for anomalies
+   - Check OpenRouter API logs for unexpected calls
+   - Monitor admin dashboard access logs (if available)
 
 ### Admin Password Rotation
 
@@ -76,6 +106,7 @@ If you discover a security vulnerability, please do not open a public issue. Ins
 ✅ Rotate admin passwords every 90 days  
 ✅ Use environment-specific secrets (dev vs. production)  
 ✅ Store sensitive data only in Cloudflare's secure vault  
+✅ **Rotate immediately if any secret appears in logs/chat/public sources**  
 
 ❌ Never commit `.env` files  
 ❌ Never paste real API keys in config files  
