@@ -80,23 +80,27 @@ function clearAdminCookie(): string {
 // ─── Email notice helper ──────────────────────────────────────────────────────
 
 /**
- * Fetch optional email notice from D1 config, then immediately clear it.
- * This is a one-shot: after fetching, the notice is set to NULL so it won't
- * appear in subsequent emails until manually set again.
+ * Fetch optional email notice from D1 config (peek only — does NOT clear).
  * Returns null if no notice is configured.
  */
-async function getAndClearEmailNotice(db: D1Database): Promise<string | null> {
+async function getEmailNotice(db: D1Database): Promise<string | null> {
   try {
-    const notice = await getConfig(db, 'email_notice');
-    if (notice) {
-      // Clear it immediately after reading
-      await db.prepare(`UPDATE config SET value = NULL WHERE key = 'email_notice'`).run();
-      console.log('Email notice cleared after read');
-    }
-    return notice;
+    return await getConfig(db, 'email_notice');
   } catch (err) {
-    console.warn(`Failed to fetch/clear email notice: ${err}`);
+    console.warn(`Failed to fetch email notice: ${err}`);
     return null;
+  }
+}
+
+/**
+ * Clears the email notice after successful delivery.
+ */
+async function clearEmailNotice(db: D1Database): Promise<void> {
+  try {
+    await db.prepare(`UPDATE config SET value = NULL WHERE key = 'email_notice'`).run();
+    console.log('Email notice cleared after successful delivery');
+  } catch (err) {
+    console.warn(`Failed to clear email notice: ${err}`);
   }
 }
 
@@ -1283,10 +1287,15 @@ Rules:
           });
         }
 
-        const notice = await getAndClearEmailNotice(env.DB);
+        const notice = await getEmailNotice(env.DB);
         const { sent, failed } = await sendDigestToAll(
           subscribers, cases, env.SENDING_ADDRESS, env.TIMEZONE, env.EMAIL, env.SITE_URL, notice
         );
+
+        // Only clear notice after successful email dispatch
+        if (sent > 0) {
+          await clearEmailNotice(env.DB);
+        }
 
         return jsonResponse({ success: true, sent, failed, diagnostics });
       } catch (err) {
@@ -1550,14 +1559,14 @@ async function runDigest(env: Env, force = false, limit = 3): Promise<RunResult>
     // Step 7: Send digest (only if we have successful cases)
     const subscribers = await getActiveSubscribers(env.DB);
     if (subscribers.length > 0 && processedCases.length > 0) {
-      const notice = await getAndClearEmailNotice(env.DB);
+      const notice = await getEmailNotice(env.DB);
       const { sent, failed } = await sendDigestToAll(
         subscribers, processedCases, env.SENDING_ADDRESS,
         env.TIMEZONE, env.EMAIL, env.SITE_URL, notice
       );
       result.emailsSent = sent;
       if (failed > 0) result.failed += failed;
-      
+
       // Only mark cases as seen after successful email dispatch
       for (const pc of processedCases) {
         await markCaseSeen(env.DB, pc, 'ERA');
@@ -1568,6 +1577,11 @@ async function runDigest(env: Env, force = false, limit = 3): Promise<RunResult>
           await insertCaseAward(env.DB, pdfFilename, 'ERA', awards, 'prompt_structured')
             .catch(e => console.warn(`Failed to insert awards for ${pdfFilename}: ${e}`));
         }
+      }
+
+      // Only clear notice after successful email + markSeen are complete
+      if (sent > 0) {
+        await clearEmailNotice(env.DB);
       }
     } else if (subscribers.length === 0 && processedCases.length > 0) {
       console.warn('ERA Digest: no active subscribers, but marking processed cases as seen for archive');
