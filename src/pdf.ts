@@ -412,7 +412,7 @@ function extractTextFromStream(content: string): string {
 }
 
 /** Decodes PDF string escape sequences */
-function decodePdfString(s: string): string {
+export function decodePdfString(s: string): string {
   return s
     .replace(/\\n/g, '\n')
     .replace(/\\r/g, '\r')
@@ -426,7 +426,7 @@ function decodePdfString(s: string): string {
 }
 
 /** Decodes a hex-encoded PDF string */
-function hexToString(hex: string): string {
+export function hexToString(hex: string): string {
   let result = '';
   for (let i = 0; i < hex.length - 1; i += 2) {
     result += String.fromCharCode(parseInt(hex.substring(i, i + 2), 16));
