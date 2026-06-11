@@ -390,6 +390,43 @@ export async function getConfig(db: D1Database, key: string): Promise<string | n
 }
 
 /**
+ * Sets (upserts) a config value by key.
+ */
+export async function setConfig(db: D1Database, key: string, value: string): Promise<void> {
+  await db
+    .prepare(`INSERT OR REPLACE INTO config (key, value, updated_at) VALUES (?, ?, datetime('now'))`)
+    .bind(key, value)
+    .run();
+}
+
+/**
+ * Looks up an active subscriber by their unsubscribe token.
+ */
+export async function getSubscriberByToken(
+  db: D1Database,
+  token: string
+): Promise<DbSubscriber | null> {
+  return db
+    .prepare('SELECT * FROM subscribers WHERE unsubscribe_token = ?')
+    .bind(token)
+    .first<DbSubscriber>();
+}
+
+/**
+ * Updates the preferences JSON blob for a subscriber identified by unsubscribe token.
+ */
+export async function updatePreferences(
+  db: D1Database,
+  token: string,
+  preferences: string
+): Promise<void> {
+  await db
+    .prepare('UPDATE subscribers SET preferences = ? WHERE unsubscribe_token = ?')
+    .bind(preferences, token)
+    .run();
+}
+
+/**
  * Alias for addPendingSubscriber to match the old interface.
  */
 export async function addSubscriberPending(
