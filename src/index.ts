@@ -41,6 +41,7 @@ import {
   deleteSubscriber, deleteStalePendingSubscribers, setProcessingLock, isProcessing,
   getSubscriberByToken, updatePreferences,
   insertCaseAward, getCaseAwardRows, getCasesWithoutAwards,
+  savePromptWithHistory, getPromptVersions, revertPromptToVersion,
 } from './db';
 import { scrapeRecentPage, scrapeAllPages, enrichCasesWithDetails } from './scraper';
 import { getPdfContent, getPdfContentFromBytes, type PdfContent } from './pdf';
@@ -508,12 +509,13 @@ export default {
           category: category || 'Employment Court Appeal',
         };
 
-        // Summarise using Employment Court summariser
+        // Summarise using Employment Court summariser (pass DB so D1 prompt is used if set)
         const summaryResult = await summariseEmploymentCourtCase(
           caseListing,
           pdfContentForSummariser,
           env.OPENROUTER_API_KEY,
-          env.OPENROUTER_MODEL
+          env.OPENROUTER_MODEL,
+          env.DB
         );
 
         if (!summaryResult.success) {
@@ -595,8 +597,9 @@ export default {
           datePublished: body.date_published || new Date().toISOString().split('T')[0],
           category: body.category || 'Employment Court Appeal',
         };
+        // Pass DB so D1 prompt is used if set
         const summaryResult = await summariseEmploymentCourtCase(
-          caseListing, pdfContent, env.OPENROUTER_API_KEY, env.OPENROUTER_MODEL
+          caseListing, pdfContent, env.OPENROUTER_API_KEY, env.OPENROUTER_MODEL, env.DB
         );
         if (!summaryResult.success) {
           return jsonResponse({ error: `LLM summarisation failed: ${summaryResult.error}` }, 500);
@@ -649,7 +652,7 @@ export default {
       }
     }
 
-    // POST /admin/dashboard/update-prompts — Save LLM prompts to D1 config
+    // POST /admin/dashboard/update-prompts — Save LLM prompts to D1 config (with version history)
     if (request.method === 'POST' && url.pathname === '/admin/dashboard/update-prompts') {
       const session = getAdminCookie(request);
       if (session !== env.ADMIN_SECRET) {
@@ -659,11 +662,59 @@ export default {
         const formData = await request.formData();
         const promptEra = (formData.get('prompt_era') as string ?? '').trim();
         const promptEc = (formData.get('prompt_ec') as string ?? '').trim();
-        await Promise.all([
-          setConfig(env.DB, 'prompt_era', promptEra),
-          setConfig(env.DB, 'prompt_ec', promptEc),
-        ]);
+        // savePromptWithHistory archives the current value before overwriting
+        if (promptEra) await savePromptWithHistory(env.DB, 'prompt_era', promptEra);
+        if (promptEc)  await savePromptWithHistory(env.DB, 'prompt_ec',  promptEc);
         return jsonResponse({ success: true, message: 'Prompts saved' });
+      } catch (err) {
+        return jsonResponse({ error: String(err) }, 500);
+      }
+    }
+
+    // GET /admin/dashboard/prompt-versions — Return version history for a prompt key
+    if (request.method === 'GET' && url.pathname === '/admin/dashboard/prompt-versions') {
+      const session = getAdminCookie(request);
+      if (session !== env.ADMIN_SECRET) {
+        return new Response('Unauthorized', { status: 401 });
+      }
+      try {
+        const key = url.searchParams.get('key') as 'prompt_era' | 'prompt_ec' | null;
+        if (key !== 'prompt_era' && key !== 'prompt_ec') {
+          return jsonResponse({ error: 'key must be prompt_era or prompt_ec' }, 400);
+        }
+        const versions = await getPromptVersions(env.DB, key);
+        // Return id, saved_at, and a short preview (first 100 chars) to keep response small
+        return jsonResponse({
+          versions: versions.map(v => ({
+            id: v.id,
+            saved_at: v.saved_at,
+            preview: v.content.slice(0, 100).replace(/\n/g, ' ') + (v.content.length > 100 ? '…' : ''),
+          })),
+        });
+      } catch (err) {
+        return jsonResponse({ error: String(err) }, 500);
+      }
+    }
+
+    // POST /admin/dashboard/revert-prompt — Revert a prompt to a specific version
+    if (request.method === 'POST' && url.pathname === '/admin/dashboard/revert-prompt') {
+      const session = getAdminCookie(request);
+      if (session !== env.ADMIN_SECRET) {
+        return new Response('Unauthorized', { status: 401 });
+      }
+      try {
+        const body = await request.json() as { key?: string; version_id?: number };
+        const key = body?.key as 'prompt_era' | 'prompt_ec' | undefined;
+        const versionId = body?.version_id;
+        if (key !== 'prompt_era' && key !== 'prompt_ec') {
+          return jsonResponse({ error: 'key must be prompt_era or prompt_ec' }, 400);
+        }
+        if (!versionId || typeof versionId !== 'number') {
+          return jsonResponse({ error: 'version_id must be a number' }, 400);
+        }
+        const ok = await revertPromptToVersion(env.DB, key, versionId);
+        if (!ok) return jsonResponse({ error: 'Version not found' }, 404);
+        return jsonResponse({ success: true, message: `Prompt reverted to version ${versionId}` });
       } catch (err) {
         return jsonResponse({ error: String(err) }, 500);
       }

@@ -528,6 +528,107 @@ export async function setPrompt(db: D1Database, type: 'era' | 'ec', prompt: stri
     .run();
 }
 
+// ─── Prompt version history ───────────────────────────────────────────────────
+
+export interface PromptVersion {
+  id: number;
+  prompt_key: string;
+  content: string;
+  saved_at: string;
+}
+
+/**
+ * Returns the last N prompt versions for a given key, newest first.
+ */
+export async function getPromptVersions(
+  db: D1Database,
+  key: 'prompt_era' | 'prompt_ec',
+  limit = 10
+): Promise<PromptVersion[]> {
+  const result = await db
+    .prepare('SELECT * FROM prompt_versions WHERE prompt_key = ? ORDER BY id DESC LIMIT ?')
+    .bind(key, limit)
+    .all<PromptVersion>();
+  return result.results;
+}
+
+/**
+ * Saves the current prompt value to version history, then writes the new value to config.
+ * Trims history to keep only the last 10 versions per key.
+ * Safe to call even if config has no current value (initial seed).
+ */
+export async function savePromptWithHistory(
+  db: D1Database,
+  key: 'prompt_era' | 'prompt_ec',
+  newContent: string
+): Promise<void> {
+  // Snapshot current value before overwriting
+  const current = await db
+    .prepare('SELECT value FROM config WHERE key = ?')
+    .bind(key)
+    .first<{ value: string }>();
+
+  if (current?.value?.trim()) {
+    // Archive current value
+    await db
+      .prepare(
+        `INSERT INTO prompt_versions (prompt_key, content, saved_at)
+         VALUES (?, ?, datetime('now'))`
+      )
+      .bind(key, current.value)
+      .run();
+
+    // Keep only the last 10 versions — delete anything outside the top 10
+    await db
+      .prepare(
+        `DELETE FROM prompt_versions
+         WHERE prompt_key = ? AND id NOT IN (
+           SELECT id FROM prompt_versions WHERE prompt_key = ? ORDER BY id DESC LIMIT 10
+         )`
+      )
+      .bind(key, key)
+      .run();
+  }
+
+  // Write new value to config
+  await db
+    .prepare(
+      `INSERT OR REPLACE INTO config (key, value, updated_at)
+       VALUES (?, ?, datetime('now'))`
+    )
+    .bind(key, newContent)
+    .run();
+}
+
+/**
+ * Reverts a prompt to a specific version by its ID.
+ * Saves the current prompt to history first (so the revert itself is undoable).
+ * Returns false if the version ID is not found.
+ */
+export async function revertPromptToVersion(
+  db: D1Database,
+  key: 'prompt_era' | 'prompt_ec',
+  versionId: number
+): Promise<boolean> {
+  const version = await db
+    .prepare('SELECT * FROM prompt_versions WHERE id = ? AND prompt_key = ?')
+    .bind(versionId, key)
+    .first<PromptVersion>();
+
+  if (!version) return false;
+
+  // Remove this version from history — it's about to become the live prompt
+  await db
+    .prepare('DELETE FROM prompt_versions WHERE id = ?')
+    .bind(versionId)
+    .run();
+
+  // Archive current + write reverted content (savePromptWithHistory handles both)
+  await savePromptWithHistory(db, key, version.content);
+
+  return true;
+}
+
 // ─── Case awards ──────────────────────────────────────────────────────────────
 
 export interface CaseAwardRow {

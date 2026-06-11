@@ -425,36 +425,40 @@ export function getDashboardHtml(status: {
     <div id="prompts" class="tab-content">
       <div class="card">
         <div class="card-title">LLM System Prompts</div>
-        <p style="color: #666; margin-bottom: 1.5rem;">Edit the system prompts used by the LLM for summarization. Changes take effect immediately on the next case processed.</p>
-        
+        <p style="color: #666; margin-bottom: 1.5rem;">Edit the prompts used by the LLM. Changes take effect immediately — no redeploy needed. The current value is always saved to version history before overwriting, so you can revert to any of the last 10 versions.</p>
+
         <form id="prompts-form">
+          <!-- ERA prompt -->
           <div class="form-group">
             <label for="prompt-era"><strong>ERA Determinations Prompt</strong></label>
             <textarea id="prompt-era" name="prompt_era" style="min-height: 300px; font-family: monospace; font-size: 0.9rem; padding: 0.75rem; border: 1px solid #ddd; border-radius: 4px; width: 100%; box-sizing: border-box;"></textarea>
-            <div style="margin-top: 0.5rem; padding: 1rem; background: #f0f5f2; border-left: 4px solid #4f6f52; border-radius: 4px;">
-              <strong>💡 Format Guide:</strong>
-              <ul style="margin: 0.5rem 0 0 0; padding-left: 1.5rem;">
-                <li>Keep under 350 words for brevity</li>
-                <li>Use sections: PARTIES, REPRESENTATIVES, FACTS, LEGAL ISSUES, HOW THE ISSUES WERE RESOLVED, OUTCOME, REMEDY</li>
-                <li>Use numbered lists for issues and resolutions</li>
-                <li>Prioritize brevity over exhaustive completeness</li>
-                <li>Include anti-hallucination instructions for representative names</li>
-              </ul>
+          </div>
+
+          <!-- ERA version history -->
+          <div style="margin-top: 0.75rem;">
+            <button type="button" onclick="toggleVersionHistory('era')"
+              style="background: none; border: none; color: #4f6f52; cursor: pointer; font-size: 0.85rem; padding: 0; text-decoration: underline;">
+              📜 Show version history (last 10)
+            </button>
+            <div id="era-versions-panel" style="display: none; margin-top: 0.5rem; border: 1px solid #e0e0e0; border-radius: 4px; overflow: hidden;">
+              <div id="era-versions-list" style="padding: 0.5rem; font-size: 0.85rem; color: #555;">Loading…</div>
             </div>
           </div>
 
+          <!-- EC prompt -->
           <div class="form-group" style="margin-top: 2rem;">
             <label for="prompt-ec"><strong>Employment Court Judgments Prompt</strong></label>
             <textarea id="prompt-ec" name="prompt_ec" style="min-height: 300px; font-family: monospace; font-size: 0.9rem; padding: 0.75rem; border: 1px solid #ddd; border-radius: 4px; width: 100%; box-sizing: border-box;"></textarea>
-            <div style="margin-top: 0.5rem; padding: 1rem; background: #f0f5f2; border-left: 4px solid #4f6f52; border-radius: 4px;">
-              <strong>💡 Format Guide:</strong>
-              <ul style="margin: 0.5rem 0 0 0; padding-left: 1.5rem;">
-                <li>Keep under 350 words for brevity</li>
-                <li>Use 7 sections: JUDGE & DATE, PARTIES, REPRESENTATIVES, FACTS, ERA FINDINGS, EMPLOYMENT COURT ISSUES RAISED, HOW THE EMPLOYMENT COURT ISSUES WERE RESOLVED, OUTCOME & REMEDY</li>
-                <li>Do NOT include [JUDGMENT ON APPEAL] or similar flags</li>
-                <li>No preamble text before structured output</li>
-                <li>Start immediately with JUDGE & DATE</li>
-              </ul>
+          </div>
+
+          <!-- EC version history -->
+          <div style="margin-top: 0.75rem;">
+            <button type="button" onclick="toggleVersionHistory('ec')"
+              style="background: none; border: none; color: #4f6f52; cursor: pointer; font-size: 0.85rem; padding: 0; text-decoration: underline;">
+              📜 Show version history (last 10)
+            </button>
+            <div id="ec-versions-panel" style="display: none; margin-top: 0.5rem; border: 1px solid #e0e0e0; border-radius: 4px; overflow: hidden;">
+              <div id="ec-versions-list" style="padding: 0.5rem; font-size: 0.85rem; color: #555;">Loading…</div>
             </div>
           </div>
 
@@ -667,6 +671,71 @@ export function getDashboardHtml(status: {
       }
     }
 
+    // Toggle a version history panel; load versions on first open
+    function toggleVersionHistory(type) {
+      const panel = document.getElementById(type + '-versions-panel');
+      const isHidden = panel.style.display === 'none';
+      panel.style.display = isHidden ? 'block' : 'none';
+      if (isHidden) loadPromptVersions(type === 'era' ? 'prompt_era' : 'prompt_ec');
+    }
+
+    // Fetch and render version history for a prompt key
+    async function loadPromptVersions(key) {
+      const listId = key === 'prompt_era' ? 'era-versions-list' : 'ec-versions-list';
+      const listEl = document.getElementById(listId);
+      listEl.innerHTML = 'Loading…';
+      try {
+        const response = await fetch('/admin/dashboard/prompt-versions?key=' + key, {
+          credentials: 'same-origin'
+        });
+        if (!response.ok) throw new Error('Failed to load versions');
+        const data = await response.json();
+        if (!data.versions || data.versions.length === 0) {
+          listEl.innerHTML = '<div style="padding: 0.5rem; color: #888;"><em>No previous versions saved yet.</em></div>';
+          return;
+        }
+        listEl.innerHTML = data.versions.map(v => {
+          const ts = new Date(v.saved_at).toLocaleString('en-NZ', { dateStyle: 'short', timeStyle: 'short' });
+          return '<div style="display: flex; justify-content: space-between; align-items: center; padding: 0.5rem 0.75rem; border-bottom: 1px solid #f0f0f0;">'
+            + '<div style="flex: 1; min-width: 0;">'
+            + '<span style="color: #333; font-weight: 500;">' + ts + '</span>'
+            + '<span style="color: #999; margin-left: 0.75rem; font-size: 0.82rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 320px; display: inline-block; vertical-align: middle;">'
+            + escHtml(v.preview) + '</span>'
+            + '</div>'
+            + '<button onclick="revertPrompt(\'' + key + '\', ' + v.id + ')" '
+            + 'style="flex-shrink: 0; margin-left: 0.75rem; font-size: 0.8rem; padding: 0.25rem 0.7rem; background: #4f6f52; color: white; border: none; border-radius: 4px; cursor: pointer;">Revert</button>'
+            + '</div>';
+        }).join('');
+      } catch (err) {
+        listEl.innerHTML = '<div style="padding: 0.5rem; color: #c0392b;">Error loading versions: ' + err.message + '</div>';
+      }
+    }
+
+    // Escape HTML entities for safe rendering
+    function escHtml(str) {
+      return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+
+    // Revert a prompt to a saved version
+    async function revertPrompt(key, versionId) {
+      if (!confirm('Revert to this version? The current prompt will be saved to history first so you can undo if needed.')) return;
+      try {
+        const response = await fetch('/admin/dashboard/revert-prompt', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ key: key, version_id: versionId })
+        });
+        if (!response.ok) throw new Error(await response.text());
+        // Reload the prompt text and refresh version history
+        await loadPrompts();
+        await loadPromptVersions(key);
+        alert('✓ Prompt reverted. The previous version has been saved to history.');
+      } catch (err) {
+        alert('❌ Revert failed: ' + err.message);
+      }
+    }
+
     // Handle prompts form submission
     document.getElementById('prompts-form').addEventListener('submit', async (e) => {
       e.preventDefault();
@@ -683,13 +752,16 @@ export function getDashboardHtml(status: {
         });
 
         if (!response.ok) throw new Error(await response.text());
-        
+
         statusEl.className = 'alert alert-success';
-        statusEl.innerHTML = '<strong>✓ Prompts saved successfully!</strong> Changes will apply to the next case processed.';
+        statusEl.innerHTML = '<strong>✓ Prompts saved!</strong> The previous version has been archived. Changes apply to the next case processed.';
+        // Reload version history panels if they are currently open
+        if (document.getElementById('era-versions-panel').style.display !== 'none') loadPromptVersions('prompt_era');
+        if (document.getElementById('ec-versions-panel').style.display !== 'none') loadPromptVersions('prompt_ec');
         setTimeout(() => {
           statusEl.innerHTML = '';
           statusEl.className = '';
-        }, 5000);
+        }, 6000);
       } catch (err) {
         statusEl.className = 'alert alert-error';
         statusEl.innerHTML = '<strong>❌ Error:</strong> ' + err.message;

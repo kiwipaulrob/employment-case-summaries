@@ -110,12 +110,34 @@ function modelSupportsPdfInput(model: string): boolean {
   return model.startsWith('anthropic/');
 }
 
+// ─── Dynamic prompt resolution ────────────────────────────────────────────────
+
+/**
+ * Returns the active Employment Court system prompt.
+ * Prefers the version stored in D1 (editable via admin UI) over the hardcoded constant.
+ * Falls back to the hardcoded SYSTEM_PROMPT_EC if D1 is unavailable or empty.
+ */
+async function resolveEcPrompt(db?: D1Database): Promise<string> {
+  if (db) {
+    try {
+      const row = await db
+        .prepare("SELECT value FROM config WHERE key = 'prompt_ec'")
+        .first<{ value: string }>();
+      if (row?.value?.trim()) return row.value.trim();
+    } catch {
+      console.warn('ERA Digest: Could not read prompt_ec from D1, using hardcoded fallback');
+    }
+  }
+  return SYSTEM_PROMPT_EC;
+}
+
 // ─── Message construction ─────────────────────────────────────────────────
 
 function buildMessages(
   caseData: CaseListing,
   pdfContent: PdfContent,
-  model: string
+  model: string,
+  systemPrompt: string
 ): OpenRouterRequest['messages'] {
   const metaPreamble =
     `Case title: ${caseData.title}\n` +
@@ -128,7 +150,7 @@ function buildMessages(
   // Claude via OpenRouter: pass PDF as a base64 document in the content array
   if (pdfContent.strategy === 'base64' && modelSupportsPdfInput(model)) {
     return [
-      { role: 'system', content: SYSTEM_PROMPT_EC },
+      { role: 'system', content: systemPrompt },
       {
         role: 'user',
         content: [
@@ -156,7 +178,7 @@ function buildMessages(
       : '[PDF content could not be extracted as text for this model. Summarise based on the metadata above if possible, otherwise respond with SUMMARY_UNAVAILABLE]';
 
   return [
-    { role: 'system', content: SYSTEM_PROMPT_EC },
+    { role: 'system', content: systemPrompt },
     {
       role: 'user',
       content:
@@ -235,17 +257,25 @@ export function extractJudgeName(summary: string): string | null {
 /**
  * Generates a 7-section structured summary for an Employment Court judgment.
  * Retries once on failure before returning a fallback message.
+ *
+ * @param db  Optional D1 database — if provided, the active prompt is read from the
+ *            `prompt_ec` config key so edits in the admin UI take effect without redeploying.
+ *            Falls back to the hardcoded SYSTEM_PROMPT_EC if D1 is unavailable or empty.
  */
 export async function summariseEmploymentCourtCase(
   caseData: CaseListing,
   pdfContent: PdfContent,
   apiKey: string,
-  model: string
+  model: string,
+  db?: D1Database
 ): Promise<SummaryResult> {
+  // Resolve the active prompt — D1 first, hardcoded constant as fallback
+  const systemPrompt = await resolveEcPrompt(db);
+
   const request: OpenRouterRequest = {
     model,
-    messages: buildMessages(caseData, pdfContent, model),
-    max_tokens: 4000, // Increased to 4000 to capture longer/complex appellate judgments (~3000–3200 words)
+    messages: buildMessages(caseData, pdfContent, model, systemPrompt),
+    max_tokens: 4000, // 4000 tokens to capture longer/complex appellate judgments (~3000–3200 words)
   };
 
   for (let attempt = 1; attempt <= 2; attempt++) {
