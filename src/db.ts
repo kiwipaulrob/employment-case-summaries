@@ -612,6 +612,8 @@ export async function getCaseAwardRows(
       FROM case_awards ca
       JOIN seen_cases sc ON sc.pdf_filename = ca.pdf_filename AND sc.source = ca.source
       WHERE ca.source = ?
+        AND sc.summary NOT LIKE '[COSTS ONLY]%'
+        AND sc.summary NOT LIKE '[CONSENT]%'
       ORDER BY sc.date_published DESC, sc.processed_at DESC
     `)
     .bind(source)
@@ -636,6 +638,8 @@ export async function getCasesWithoutAwards(
         AND sc.summary IS NOT NULL
         AND sc.summary NOT LIKE '(seeded%'
         AND sc.summary NOT LIKE 'Summary unavailable%'
+        AND sc.summary NOT LIKE '[COSTS ONLY]%'
+        AND sc.summary NOT LIKE '[CONSENT]%'
         AND ca.id IS NULL
       ORDER BY sc.processed_at DESC
     `)
