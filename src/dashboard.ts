@@ -295,6 +295,7 @@ export function getDashboardHtml(status: {
   <div class="container">
     <div class="tabs">
       <button class="tab-btn active" type="button" onclick="switchTab(event, 'digest')">Digest Controls</button>
+      <button class="tab-btn" type="button" onclick="switchTab(event, 'era-upload')">ERA Upload</button>
       <button class="tab-btn" type="button" onclick="switchTab(event, 'ec-upload')">EC Case Upload</button>
       <button class="tab-btn" type="button" onclick="switchTab(event, 'subscribers')">Subscribers</button>
       <button class="tab-btn" type="button" onclick="switchTab(event, 'analytics')">Analytics</button>
@@ -363,6 +364,35 @@ export function getDashboardHtml(status: {
             <button type="button" class="button" style="background: #999;" onclick="cancelPreview()">Cancel</button>
           </div>
         </div>
+      </div>
+    </div>
+
+    <!-- ERA Upload Tab -->
+    <div id="era-upload" class="tab-content">
+      <div class="card">
+        <div class="card-title">Upload ERA Case by URL</div>
+        <p style="color: #666; margin-bottom: 1.5rem;">
+          Process a single ERA determination by pasting its PDF URL. Use this for cases that have dropped off the ERA recent listing page (&gt;10 days old).<br>
+          <small>Example: <code>https://determinations.era.govt.nz/assets/elawpdf/2026/2026-NZERA-225.pdf</code></small>
+        </p>
+        <div class="form-group">
+          <label for="era-pdf-url">ERA PDF URL</label>
+          <input type="url" id="era-pdf-url" placeholder="https://determinations.era.govt.nz/assets/elawpdf/YYYY/YYYY-NZERA-NNN.pdf" style="font-family: monospace; font-size: 0.9rem;">
+        </div>
+        <button type="button" class="button" onclick="uploadEraUrl()">Process Case</button>
+        <div id="era-url-status" style="margin-top: 1.5rem;"></div>
+      </div>
+
+      <div class="card" style="margin-top: 1.5rem;">
+        <div class="card-title">ERA Multi-Page Backfill</div>
+        <p style="color: #666; margin-bottom: 1.5rem;">Scrape the ERA recent listing across multiple pages and process any new cases. Each page shows ~10 cases. Use this after a missed cron run.</p>
+        <div class="form-group">
+          <label for="era-backfill-pages">Number of pages to scrape</label>
+          <input type="number" id="era-backfill-pages" min="1" max="5" value="3">
+          <small>1 page = ~10 most recent cases. 3 pages = ~30 cases (last 10–15 days). Max 5.</small>
+        </div>
+        <button type="button" class="button" onclick="runEraBackfill()">Scrape &amp; Process</button>
+        <div id="era-backfill-status" style="margin-top: 1.5rem;"></div>
       </div>
     </div>
 
@@ -845,6 +875,59 @@ export function getDashboardHtml(status: {
       } catch (err) {
         statusEl.className = 'alert alert-error';
         statusEl.innerHTML = '<strong>❌ Error:</strong> ' + err.message;
+      }
+    }
+
+    // Upload a single ERA case by PDF URL
+    async function uploadEraUrl() {
+      const pdfUrl = document.getElementById('era-pdf-url').value.trim();
+      const statusEl = document.getElementById('era-url-status');
+      if (!pdfUrl) {
+        statusEl.className = 'alert alert-error';
+        statusEl.innerHTML = '❌ Please enter a PDF URL.';
+        return;
+      }
+      statusEl.className = '';
+      statusEl.innerHTML = '⏳ Processing case — this may take up to 45 seconds…';
+      try {
+        const response = await fetch('/admin/dashboard/upload-era-url', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ pdfUrl }),
+        });
+        if (!response.ok) throw new Error(await response.text());
+        const result = await response.json();
+        statusEl.className = 'alert alert-success';
+        statusEl.innerHTML = '<strong>✓ Case processed!</strong> ' +
+          escHtml(result.title || result.caseId || '') +
+          '<br><small>Summary stored. It will appear in the next digest email.</small>';
+        document.getElementById('era-pdf-url').value = '';
+      } catch (err) {
+        statusEl.className = 'alert alert-error';
+        statusEl.innerHTML = '<strong>❌ Error:</strong> ' + escHtml(err.message);
+      }
+    }
+
+    // Multi-page ERA backfill
+    async function runEraBackfill() {
+      const pages = document.getElementById('era-backfill-pages').value;
+      const statusEl = document.getElementById('era-backfill-status');
+      statusEl.className = '';
+      statusEl.innerHTML = '⏳ Scraping ' + pages + ' page(s) of ERA listings — this may take a minute…';
+      try {
+        const response = await fetch('/admin/dashboard/backfill-era?pages=' + pages, {
+          method: 'POST',
+          credentials: 'same-origin',
+        });
+        if (!response.ok) throw new Error(await response.text());
+        const result = await response.json();
+        statusEl.className = 'alert alert-success';
+        statusEl.innerHTML = '<strong>✓ Done!</strong> ' + escHtml(result.message || JSON.stringify(result));
+        setTimeout(() => { statusEl.innerHTML = ''; statusEl.className = ''; }, 10000);
+      } catch (err) {
+        statusEl.className = 'alert alert-error';
+        statusEl.innerHTML = '<strong>❌ Error:</strong> ' + escHtml(err.message);
       }
     }
 
