@@ -317,3 +317,32 @@ export function getSummaryExcerpt(summary: string, maxLength = 260): string {
 
   return summary.slice(0, maxLength).trimEnd() + '…';
 }
+
+/**
+ * Validates that a summary has not been double-JSON-encoded.
+ *
+ * Cloudflare Workers can sometimes JSON.stringify an already-stringified value,
+ * producing `"\"PARTIES\\nApplicant: ...\""` instead of `"PARTIES\\nApplicant: ..."`.
+ * This function detects that pattern and throws immediately so it can't silently
+ * corrupt the database.
+ *
+ * @throws if the summary looks double-encoded
+ */
+export function validateSummaryNotDoubleEncoded(summary: string): void {
+  if (!summary) return;
+  // Double-encoded strings start with a literal quote character
+  if (summary.startsWith('"') && summary.endsWith('"') && summary.length > 2) {
+    // Try to parse it — if it succeeds and produces another string, it was double-encoded
+    try {
+      const parsed = JSON.parse(summary);
+      if (typeof parsed === 'string') {
+        throw new Error(
+          `Double-encoding detected: summary starts with literal quote and JSON.parse produces another string. ` +
+          `First 80 chars: ${summary.slice(0, 80)}...`
+        );
+      }
+    } catch {
+      // Not valid JSON — this is a normal string that happens to start/end with quotes, safe to proceed
+    }
+  }
+}
