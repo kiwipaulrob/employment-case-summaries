@@ -1,11 +1,14 @@
 # ERA Digest Worker — Setup Guide
 
-**⚠️ Latest Deployment (8 June 2026):** ERA Backfill feature — Options A & C (commit d7950bd)
-- `scrapeAllPages()` added to scraper — scrapes ERA listing pages 1–3 (up to 30 cases)
-- New dashboard tab **ERA Backfill**: auto-scrape multiple pages OR paste a single PDF URL
-- New endpoints: `POST /admin/dashboard/backfill-era` and `POST /admin/dashboard/upload-era-url`
-- No email sent by either endpoint — purely for silent archive population
-- Also: seed-seen 500 bug fixed; migration 0009 (confirm_token); migration 0008 applied
+**⚠️ Latest Deployment (June 2026):** Extended awards data + internal index probe (branch `feat/extended-awards-data`)
+- **New AWARDS_DATA fields**: contribution applied/reduction/conduct, penalties, decision date, employment tenure, costs "reserved" support — migration 0015
+- **Awards page updated**: contribution stats, penalty distribution chart, new table columns (Contrib. %, Penalty, Costs)
+- **Daily cron now probes ERA internal index** (`/determination/view/{id}`) instead of `/recent?start=N` pagination. Tracks `last_era_id` in D1 config so each run starts from the correct position. Parallel batches of 5 with 300ms delay.
+- **Rescan Silently fixed**: now actually triggers reprocessing (was only deleting cases)
+- **`env.DB` now passed to `summariseCase()` in daily cron**: D1 prompt_era edits now take effect on cron runs (previously ignored)
+- **New route**: `/remedies` → 301 redirect to `/awards`
+- **Awards table**: wider container (1100px), horizontal scroll, case name wraps at 320px
+- **Deploy requires**: migration 0015, then re-run awards backfill from admin dashboard
 
 **Previous Deployment (May 17, 2026):** PR #7 — 4 critical stability fixes:
 - LLM API timeout (25s AbortController on OpenRouter calls)

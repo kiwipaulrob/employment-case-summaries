@@ -1529,19 +1529,23 @@ async function runDigest(env: Env, force = false, limit = 3): Promise<RunResult>
 
     // Step 2: Scrape — probe ERA internal index for new cases
     //
-    // Replaces the old approach of scraping /recent?start=N which was limited
-    // to ~38 cases. The internal index (/determination/view/{id}) is perfectly
-    // sequential — every integer from 1 to the current max resolves to a real
-    // case. New cases always appear at the highest IDs.
+    // Uses the sequential internal index (/determination/view/{id}) which is
+    // perfectly gapless — every integer from 1 to the current max resolves
+    // to a real case. New cases always appear at the highest IDs.
     //
-    // Probe strategy: start from a known high-water mark, fetch IDs in parallel
-    // batches of 5 with a 300ms delay between batches. Stop at 3 consecutive
-    // 404s within a batch.
-    const probeStart = 21300; // Conservative floor — current max is ~21325
+    // Tracks the last processed ID in D1 config (last_era_id) so each run
+    // starts from the correct position rather than probing from a hardcoded
+    // floor. Falls back to 21300 if no key is stored yet.
+    //
+    // Probe strategy: fetch IDs in parallel batches of 5 with 300ms delay
+    // between batches. Stop after 3 consecutive 404s within a batch.
+    const lastEraIdStr = await getConfig(env.DB, 'last_era_id');
+    const probeStart = lastEraIdStr ? parseInt(lastEraIdStr, 10) + 1 : 21300;
     const probeBatchSize = 5;
     const probeLimit = Math.min(limit * 2, 20); // Probe more than we'll process
     let allCases: CaseListing[] = [];
     let consecutiveMisses = 0;
+    let highestFound = probeStart - 1;
 
     for (let offset = 0; offset < probeLimit && consecutiveMisses < 3; offset += probeBatchSize) {
       const batchIds = Array.from({ length: probeBatchSize }, (_, i) => probeStart + offset + i);
@@ -1551,12 +1555,12 @@ async function runDigest(env: Env, force = false, limit = 3): Promise<RunResult>
         )
       );
 
-      // Add successes, stop early on 3 consecutive 404s
       let batchHits = 0;
       for (const detail of batchResults) {
         if (detail) {
           batchHits++;
           consecutiveMisses = 0;
+          highestFound = Math.max(highestFound, probeStart + offset + batchHits - 1);
           allCases.push({
             caseId: detail.caseId,
             title: detail.title,
@@ -1571,7 +1575,6 @@ async function runDigest(env: Env, force = false, limit = 3): Promise<RunResult>
         }
       }
 
-      // If every ID in this batch missed, increment the counter
       if (batchHits === 0) consecutiveMisses += probeBatchSize;
 
       if (offset + probeBatchSize < probeLimit) {
@@ -1579,7 +1582,12 @@ async function runDigest(env: Env, force = false, limit = 3): Promise<RunResult>
       }
     }
 
-    console.log(`ERA Digest: probed IDs ${probeStart}–${probeStart + probeLimit}, found ${allCases.length} new case(s)`);
+    // Update the high-water mark so next run starts from the right position
+    if (highestFound >= probeStart) {
+      await setConfig(env.DB, 'last_era_id', String(highestFound));
+    }
+
+    console.log(`ERA Digest: probed IDs ${probeStart}–${probeStart + probeLimit}, found ${allCases.length} new case(s), highest ID=${highestFound}`);
 
     // Step 3: Filter
     let newCases = await filterNewCases(env.DB, allCases);
