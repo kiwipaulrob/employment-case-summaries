@@ -1016,7 +1016,7 @@ export function awardsPage(rows: CaseAwardWithCase[]): string {
       ? `<a href="${escapeHtml(r.pdf_url)}" target="_blank" rel="noopener" style="font-size:11px;color:${COLORS.muted};">PDF</a>`
       : '';
     return `<tr>
-  <td style="font-weight:500;">${escapeHtml(title)}</td>
+  <td style="font-weight:500;max-width:320px;word-wrap:break-word;white-space:normal;">${escapeHtml(title)}</td>
   <td style="text-align:right;white-space:nowrap;">${fmtDollar(r.hhd_amount)}</td>
   <td style="text-align:right;white-space:nowrap;">${fmtDollar(r.lost_wages)}</td>
   <td style="text-align:right;">${fmtWeeks(r.lost_wages_weeks)}</td>
