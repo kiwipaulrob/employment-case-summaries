@@ -768,6 +768,21 @@ export default {
           ).bind(c.source, c.pdf_filename).run();
         }
 
+        // Reset last_era_id to a point below the deleted cases so the next
+        // internal-index probe will re-find them. Extract era_case_id from
+        // each case's case_url (e.g. /determination/view/21324 → 21324).
+        let minEraId = Infinity;
+        for (const c of recentCases) {
+          const match = c.case_url.match(/\/determination\/view\/(\d+)/);
+          if (match) {
+            const id = parseInt(match[1], 10);
+            if (id < minEraId) minEraId = id;
+          }
+        }
+        const resetTo = minEraId !== Infinity ? Math.max(minEraId - 1, 0) : 21299;
+        await setConfig(env.DB, 'last_era_id', String(resetTo));
+        console.log(`Rescan: reset last_era_id to ${resetTo} for reprocessing`);
+
         // Trigger pipeline — always reprocess rescanned cases
         if (recentCases.length > 0) {
           if (sendEmail) {
