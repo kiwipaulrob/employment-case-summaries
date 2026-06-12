@@ -14,6 +14,7 @@ import {
   isValidEmail,
   stripHtml,
   stripLlmArtifacts,
+  timingSafeEqual,
   parseAwardsBlock,
   parseDollarAmount,
   getSummaryExcerpt,
@@ -271,6 +272,40 @@ OUTCOME`);
 
 // validateSummaryNotDoubleEncoded added in PR #50 (guardrail-notice-timing)
 // Tests will be enabled once that PR is merged.
+
+// ─── timingSafeEqual ───────────────────────────────────────────────────────────
+
+describe('timingSafeEqual', () => {
+  it('returns true for identical strings', () => {
+    expect(timingSafeEqual('password123', 'password123')).toBe(true);
+  });
+
+  it('returns false for completely different strings', () => {
+    expect(timingSafeEqual('password123', 'wrongpass')).toBe(false);
+  });
+
+  it('returns false for strings differing only in last character', () => {
+    expect(timingSafeEqual('abcdef', 'abcdeg')).toBe(false);
+  });
+
+  it('returns false for strings differing only in first character', () => {
+    expect(timingSafeEqual('abcdef', 'xbcdef')).toBe(false);
+  });
+
+  it('handles different lengths without leaking which is shorter', () => {
+    expect(timingSafeEqual('short', 'a'.repeat(100))).toBe(false);
+    expect(timingSafeEqual('a'.repeat(100), 'short')).toBe(false);
+  });
+
+  it('returns true for empty strings', () => {
+    expect(timingSafeEqual('', '')).toBe(true);
+  });
+
+  it('returns false when one string is empty', () => {
+    expect(timingSafeEqual('', 'notempty')).toBe(false);
+    expect(timingSafeEqual('notempty', '')).toBe(false);
+  });
+});
 
 // ─── parseAwardsBlock ──────────────────────────────────────────────────────────
 
