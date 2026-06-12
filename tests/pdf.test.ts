@@ -11,6 +11,7 @@ import {
   truncateToTokenBudget,
   decodePdfString,
   hexToString,
+  pdfBytesToText,
 } from '../src/pdf';
 
 // ─── decodePdfString ───────────────────────────────────────────────────────────
@@ -65,6 +66,27 @@ describe('hexToString', () => {
 
   it('returns empty string for empty input', () => {
     expect(hexToString('')).toBe('');
+  });
+});
+
+// ─── pdfBytesToText / encrypted PDF detection ──────────────────────────────────
+
+describe('pdfBytesToText', () => {
+  it('throws a clear error for encrypted/password-protected PDFs', async () => {
+    // A minimal PDF-like byte sequence containing the /Encrypt marker
+    const encryptedPdfBytes = new Uint8Array(
+      Buffer.from('%PDF-1.4\n1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\ntrailer\n<< /Size 3 /Root 1 0 R /Encrypt 3 0 R >>\n%%EOF', 'latin1')
+    );
+    await expect(pdfBytesToText(encryptedPdfBytes.buffer)).rejects.toThrow(
+      /encrypted|password-protected/i
+    );
+  });
+
+  it('throws insufficient content error for unparseable non-encrypted PDF data', async () => {
+    const junkBytes = new Uint8Array(50);
+    await expect(pdfBytesToText(junkBytes.buffer)).rejects.toThrow(
+      /insufficient content|unable|empty/i
+    );
   });
 });
 
