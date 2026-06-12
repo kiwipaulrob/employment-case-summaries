@@ -1577,12 +1577,18 @@ async function runDigest(env: Env, force = false, limit = 3): Promise<RunResult>
 
         // Extract better title from LLM summary if available
         const betterTitle = extractTitleFromSummary(strippedSummary, c.category);
+        // Capture the prompt version at summarisation time (updated_at of the active prompt)
+        const promptVersionRow = await env.DB.prepare(
+          "SELECT updated_at FROM config WHERE key = 'prompt_era'"
+        ).first<{ updated_at: string }>();
+        const promptVersion = promptVersionRow?.updated_at ?? null;
         const processedCase: ProcessedCase = {
           ...c,
           title: betterTitle || c.title,
           summary: strippedSummary,
           processedAt: new Date().toISOString(),
           source: 'ERA',
+          summaryVersion: promptVersion,
         };
         processedCases.push(processedCase);
         // NOTE: markCaseSeen is NOT called here. Cases are marked as seen only AFTER

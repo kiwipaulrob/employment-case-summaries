@@ -73,8 +73,8 @@ export async function markCaseSeen(
   await db
     .prepare(
       `INSERT OR IGNORE INTO seen_cases
-         (source, pdf_filename, case_id, title, case_url, pdf_url, date_published, member, category, summary, processed_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+         (source, pdf_filename, case_id, title, case_url, pdf_url, date_published, member, category, summary, processed_at, summary_version)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
     .bind(
       source,
@@ -87,7 +87,8 @@ export async function markCaseSeen(
       processedCase.member ?? null,
       processedCase.category ?? null,
       processedCase.summary,
-      processedCase.processedAt
+      processedCase.processedAt,
+      processedCase.summaryVersion ?? null
     )
     .run();
 }
