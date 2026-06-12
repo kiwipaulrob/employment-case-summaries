@@ -20,6 +20,7 @@ export interface ProcessedCase extends CaseListing {
   summary: string;       // The LLM-generated structured summary
   processedAt: string;   // ISO 8601 UTC timestamp
   source: string;        // 'ERA' or 'EMPLOYMENT_COURT'
+  summaryVersion?: string | null; // Prompt version used to generate this summary (updated_at timestamp)
 }
 
 // ─── Database rows ────────────────────────────────────────────────────────────
@@ -36,6 +37,7 @@ export interface DbSeenCase {
   category: string | null;
   summary: string | null;
   processed_at: string;
+  summary_version: string | null;
 }
 
 export interface DbSubscriber {
