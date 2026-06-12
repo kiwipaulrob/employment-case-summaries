@@ -926,7 +926,13 @@ Return ONLY a valid JSON object with these exact keys (no other text, no markdow
   "lost_wages_weeks": null or number (weeks of salary the lost wages figure represents, if explicitly stated),
   "costs_awarded": null or integer (NZD costs order if any),
   "reinstatement": false or true,
-  "outcome": "applicant" or "respondent" or "mixed" or "none"
+  "outcome": "applicant" or "respondent" or "mixed" or "none",
+  "decision_date": null or string (decision date in YYYY-MM-DD format if stated),
+  "employment_tenure": null or string (duration of employment if stated, e.g. "2.5 years" or "6 months"),
+  "contribution_applied": false or true (whether the Authority reduced any remedy due to contributory conduct),
+  "contribution_reduction": null or string (percentage reduction if stated, e.g. "25%", or calculated as "25% (calculated)"),
+  "contribution_conduct": null or string (brief description of the conduct justifying the reduction),
+  "penalties": null or integer (total statutory penalties ordered against the respondent in NZD)
 }
 
 Rules:

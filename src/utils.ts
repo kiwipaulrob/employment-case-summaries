@@ -236,8 +236,15 @@ export interface AwardsData {
   lost_wages_weeks: number | null;
   weekly_wage: number | null;
   costs_awarded: number | null;
+  costs_awarded_text: string | null;  // raw text like "reserved", or null
   reinstatement: boolean;
   outcome: 'applicant' | 'respondent' | 'mixed' | 'none' | null;
+  decision_date: string | null;        // YYYY-MM-DD if stated
+  employment_tenure: string | null;    // e.g. "2.5 years", "6 months"
+  contribution_applied: boolean;
+  contribution_reduction: string | null;  // e.g. "25%", "25% (calculated)"
+  contribution_conduct: string | null;    // 1-2 sentence description
+  penalties: number | null;               // total dollar amount
 }
 
 /**
@@ -261,7 +268,11 @@ export function parseAwardsBlock(summary: string): { awardsData: AwardsData | nu
 
   const awardsData: AwardsData = {
     hhd_amount: null, lost_wages: null, lost_wages_weeks: null,
-    weekly_wage: null, costs_awarded: null, reinstatement: false, outcome: null,
+    weekly_wage: null, costs_awarded: null, costs_awarded_text: null,
+    reinstatement: false, outcome: null,
+    decision_date: null, employment_tenure: null,
+    contribution_applied: false, contribution_reduction: null,
+    contribution_conduct: null, penalties: null,
   };
 
   for (const line of block.split('\n')) {
@@ -269,15 +280,24 @@ export function parseAwardsBlock(summary: string): { awardsData: AwardsData | nu
     if (colonIdx === -1) continue;
     const key   = line.slice(0, colonIdx).trim().toLowerCase();
     const value = line.slice(colonIdx + 1).trim();
+    const lowerVal = value.toLowerCase();
 
     switch (key) {
       case 'hhd':              awardsData.hhd_amount    = parseDollarAmount(value); break;
       case 'lost wages':       awardsData.lost_wages    = parseDollarAmount(value); break;
       case 'weekly wage':      awardsData.weekly_wage   = parseDollarAmount(value); break;
-      case 'costs':            awardsData.costs_awarded = parseDollarAmount(value); break;
       case 'lost wages weeks': {
         const n = parseFloat(value.replace(/[^\d.]/g, ''));
         awardsData.lost_wages_weeks = isNaN(n) ? null : Math.round(n * 10) / 10;
+        break;
+      }
+      case 'costs': {
+        const dollarVal = parseDollarAmount(value);
+        awardsData.costs_awarded = dollarVal;
+        // If it's a non-numeric value like "reserved", preserve it as text
+        if (dollarVal === null && !/^(nil|none|n\/a|not\s+stated|-)$/i.test(value)) {
+          awardsData.costs_awarded_text = value.trim() || null;
+        }
         break;
       }
       case 'reinstatement':
@@ -290,6 +310,24 @@ export function parseAwardsBlock(summary: string): { awardsData: AwardsData | nu
         }
         break;
       }
+      case 'decision date':
+        awardsData.decision_date = /^(nil|none|n\/a|-)$/i.test(lowerVal) ? null : value.trim() || null;
+        break;
+      case 'employment tenure':
+        awardsData.employment_tenure = /^(nil|none|n\/a|-)$/i.test(lowerVal) ? null : value.trim() || null;
+        break;
+      case 'contribution applied':
+        awardsData.contribution_applied = /^yes$/i.test(value.trim());
+        break;
+      case 'contribution reduction':
+        awardsData.contribution_reduction = /^(nil|none|n\/a|-)$/i.test(lowerVal) ? null : value.trim() || null;
+        break;
+      case 'contribution conduct':
+        awardsData.contribution_conduct = /^(nil|none|n\/a|-)$/i.test(lowerVal) ? null : value.trim() || null;
+        break;
+      case 'penalties':
+        awardsData.penalties = parseDollarAmount(value);
+        break;
     }
   }
 
