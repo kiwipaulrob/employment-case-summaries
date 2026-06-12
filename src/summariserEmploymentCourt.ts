@@ -184,9 +184,9 @@ function buildMessages(
       content:
         metaPreamble +
         'Full judgment text:\n\n' +
-        '---\n' +
+        '<document>\n' +
         textContent +
-        '\n---',
+        '\n</document>',
     },
   ];
 }
