@@ -213,6 +213,18 @@ async function extractTextFromPdfBytes(buffer: ArrayBuffer): Promise<string> {
   const bytes = new Uint8Array(buffer);
 
   console.log(`[pdf] Starting text extraction from ${buffer.byteLength} bytes`);
+
+  // Check for encrypted/password-protected PDFs early
+  // PDF encryption is flagged by the /Encrypt entry in the trailer or catalog.
+  // This detects password-protected files before attempting extraction.
+  if (/\/Encrypt\b/.test(raw)) {
+    throw new Error(
+      'PDF is encrypted or password-protected. Password-protected PDFs cannot be ' +
+      'processed automatically — the text content is not accessible without decryption. ' +
+      'Please upload an unencrypted version.'
+    );
+  }
+
   const textParts: string[] = [];
   let pos = 0;
 
