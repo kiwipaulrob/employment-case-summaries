@@ -1055,10 +1055,11 @@ export function awardsPage(rows: CaseAwardWithCase[]): string {
   .awards-section { overflow-x:auto; -webkit-overflow-scrolling:touch; }
   .stat-row-label { font-size:13px; font-weight:600; color:${COLORS.navy}; margin-bottom:10px; }
   @media(max-width:600px){ .awards-stats{grid-template-columns:1fr 1fr;} .awards-table{font-size:11px;} }
+  .awards-page .container { max-width: 1100px; }
   `;
 
   const body = `
-<div class="page-content">
+<div class="page-content awards-page">
   <div class="container">
     <div class="hero" style="margin-bottom:32px;">
       <h1>Awards &amp; Damages</h1>
