@@ -1044,16 +1044,17 @@ export function awardsPage(rows: CaseAwardWithCase[]): string {
   .awards-stat-label { font-size:12px; color:${COLORS.muted}; }
   .awards-section { background:${COLORS.white}; border:1px solid ${COLORS.border}; border-radius:10px; padding:24px; margin-bottom:24px; }
   .awards-section h2 { font-size:16px; font-weight:700; color:${COLORS.navy}; margin-bottom:16px; }
-  .awards-table { width:100%; border-collapse:collapse; font-size:13px; }
+  .awards-table { width:100%; border-collapse:collapse; font-size:13px; white-space:nowrap; }
   .awards-table th { text-align:left; padding:8px 10px; font-size:11px; font-weight:600; text-transform:uppercase;
-    letter-spacing:0.4px; color:${COLORS.muted}; border-bottom:2px solid ${COLORS.border}; background:${COLORS.bg}; white-space:nowrap; }
+    letter-spacing:0.4px; color:${COLORS.muted}; border-bottom:2px solid ${COLORS.border}; background:${COLORS.bg}; }
   .awards-table th.right { text-align:right; }
   .awards-table th.center { text-align:center; }
   .awards-table td { padding:10px 10px; border-bottom:1px solid ${COLORS.border}; vertical-align:middle; }
   .awards-table tr:last-child td { border-bottom:none; }
   .awards-table tr:hover td { background:#f8faff; }
+  .awards-section { overflow-x:auto; -webkit-overflow-scrolling:touch; }
   .stat-row-label { font-size:13px; font-weight:600; color:${COLORS.navy}; margin-bottom:10px; }
-  @media(max-width:600px){ .awards-stats{grid-template-columns:1fr 1fr;} .awards-table{font-size:12px;} }
+  @media(max-width:600px){ .awards-stats{grid-template-columns:1fr 1fr;} .awards-table{font-size:11px;} }
   `;
 
   const body = `

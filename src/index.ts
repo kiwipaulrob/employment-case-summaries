@@ -186,6 +186,14 @@ export default {
       }
     }
 
+    // GET /remedies → redirect to /awards
+    if (request.method === 'GET' && url.pathname === '/remedies') {
+      return new Response(null, {
+        status: 301,
+        headers: { Location: '/awards' },
+      });
+    }
+
     // POST /subscribe — Handle sign-up form (rate limited: 20/IP/min)
     if (request.method === 'POST' && url.pathname === '/subscribe') {
       if (!checkRateLimit(getClientIp(request))) {
