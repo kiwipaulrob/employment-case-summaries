@@ -119,6 +119,33 @@ export function sleep(ms: number): Promise<void> {
 }
 
 /**
+ * Constant-time string comparison to prevent timing side-channel attacks.
+ *
+ * Standard `!==` short-circuits on the first differing character, leaking
+ * information about how many prefix characters were correct — enabling
+ * character-by-character brute-force. This function always compares every
+ * byte of the longer string, making the execution time independent of
+ * where the strings differ.
+ *
+ * If the strings differ in length, the shorter is null-padded to match.
+ * This prevents leaking which input was shorter.
+ *
+ * Use for: password checks, API token validation, any secret comparison.
+ */
+export function timingSafeEqual(a: string, b: string): boolean {
+  const maxLen = Math.max(a.length, b.length);
+  const bufA = new Uint8Array(maxLen);
+  const bufB = new Uint8Array(maxLen);
+  for (let i = 0; i < a.length; i++) bufA[i] = a.charCodeAt(i);
+  for (let i = 0; i < b.length; i++) bufB[i] = b.charCodeAt(i);
+  let result = 0;
+  for (let i = 0; i < maxLen; i++) {
+    result |= bufA[i] ^ bufB[i];
+  }
+  return result === 0;
+}
+
+/**
  * Converts a plain-text structured LLM summary into styled HTML for web pages.
  * Uses the same section-label parsing as the email renderer but with page CSS classes.
  */

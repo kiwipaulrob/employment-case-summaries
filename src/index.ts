@@ -57,7 +57,7 @@ import {
   adminLoginPage, adminPage, preferencesPage, awardsPage,
 } from './pages';
 import { getDashboardHtml } from './dashboard';
-import { isValidEmail, parseAwardsBlock } from './utils';
+import { isValidEmail, parseAwardsBlock, timingSafeEqual } from './utils';
 
 // ─── Cookie helpers ───────────────────────────────────────────────────────────
 
@@ -317,7 +317,7 @@ export default {
     if (request.method === 'POST' && url.pathname === '/admin') {
       const formData = await request.formData();
       const password = (formData.get('password') as string ?? '').trim();
-      if (password !== env.ADMIN_SECRET) {
+      if (!timingSafeEqual(password, env.ADMIN_SECRET)) {
         return htmlResponse(adminLoginPage('Incorrect password. Please try again.'));
       }
       return new Response('', {
@@ -1159,7 +1159,7 @@ Rules:
     // ══════════════════════════════════════════════════════════════════════════
 
     const authHeader = request.headers.get('Authorization') ?? '';
-    if (!authHeader.startsWith('Bearer ') || authHeader.slice(7) !== env.ADMIN_SECRET) {
+    if (!authHeader.startsWith('Bearer ') || !timingSafeEqual(authHeader.slice(7), env.ADMIN_SECRET)) {
       return new Response('Unauthorized', { status: 401 });
     }
 
