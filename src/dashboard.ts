@@ -12,6 +12,7 @@ export function getDashboardHtml(status: {
   total_cases: number;
   era_cases: number;
   ec_cases: number;
+  email_notice?: string | null;
 }): string {
   // Server-side relative time formatter
   function relativeTime(iso: string | null): string {
@@ -356,6 +357,22 @@ export function getDashboardHtml(status: {
             </button>
           </form>
         </div>
+      </div>
+
+      <!-- Email Notice Banner Card -->
+      <div class="card">
+        <div class="card-title">Email Notice Banner</div>
+        <p style="color: #666; margin-bottom: 1rem;">
+          Set a one-shot notice that appears at the top of the next digest email. The notice is automatically cleared after the email is sent.
+        </p>
+        <div style="margin-bottom: 0.75rem;">
+          <textarea id="notice-text" rows="3" style="width: 100%; padding: 0.6rem; border: 1px solid #ccc; border-radius: 6px; font-family: inherit; font-size: 0.9rem;" placeholder="e.g. Updated summaries for recently rescanned cases (new prompt applied).">${escapeHtml(status.email_notice || '')}</textarea>
+        </div>
+        <div style="display: flex; gap: 0.75rem;">
+          <button type="button" class="button" onclick="saveNotice()">Save Notice</button>
+          ${status.email_notice ? '<button type="button" class="button" style="background: #999;" onclick="clearNotice()">Clear Notice</button>' : ''}
+        </div>
+        <div id="notice-status" style="margin-top: 1rem;"></div>
       </div>
 
       <div class="card">
@@ -892,6 +909,36 @@ export function getDashboardHtml(status: {
         statusEl.className = 'alert alert-error';
         statusEl.innerHTML = '<strong>❌ Error:</strong> ' + err.message;
       }
+    }
+
+    // Save or clear the email notice banner
+    async function saveNotice() {
+      const textarea = document.getElementById('notice-text');
+      const statusEl = document.getElementById('notice-status');
+      const notice = textarea.value.trim();
+      statusEl.className = '';
+      statusEl.innerHTML = '⏳ Saving…';
+      try {
+        const response = await fetch('/admin/notice-banner', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ notice }),
+        });
+        if (!response.ok) throw new Error(await response.text());
+        const result = await response.json();
+        statusEl.className = 'alert alert-success';
+        statusEl.innerHTML = '<strong>✓</strong> Notice ' + (notice ? 'saved' : 'cleared') + '. It will appear in the next digest email.';
+        setTimeout(() => { statusEl.innerHTML = ''; statusEl.className = ''; }, 5000);
+      } catch (err) {
+        statusEl.className = 'alert alert-error';
+        statusEl.innerHTML = '<strong>❌ Error:</strong> ' + err.message;
+      }
+    }
+
+    async function clearNotice() {
+      document.getElementById('notice-text').value = '';
+      await saveNotice();
     }
 
     // Handle awards backfill
