@@ -768,12 +768,14 @@ export default {
           ).bind(c.source, c.pdf_filename).run();
         }
 
-        // If sendEmail, set a notice banner, then trigger pipeline
-        if (sendEmail && recentCases.length > 0) {
-          await setConfig(env.DB, 'email_notice',
-            `Updated summaries for ${recentCases.length} recently rescanned case(s) (new prompt applied).`
-          );
-          // Fire-and-forget the pipeline
+        // Trigger pipeline — always reprocess rescanned cases
+        if (recentCases.length > 0) {
+          if (sendEmail) {
+            await setConfig(env.DB, 'email_notice',
+              `Updated summaries for ${recentCases.length} recently rescanned case(s) (new prompt applied).`
+            );
+          }
+          // Fire-and-forget the pipeline (reprocesses deleted cases from the ERA listing)
           ctx.waitUntil(runDigest(env, true, limit));
         }
 
@@ -783,7 +785,7 @@ export default {
           send_email: sendEmail,
           message: sendEmail
             ? `Deleted ${recentCases.length} cases, setting notice banner and triggering pipeline.`
-            : `Deleted ${recentCases.length} cases. Run /admin/send-digest to email, or wait for next cron.`
+            : `Deleted ${recentCases.length} cases and triggered silent reprocessing. Check results on the home page.`,
         });
       } catch (err) {
         return jsonResponse({ error: String(err) }, 500);
