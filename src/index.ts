@@ -304,6 +304,7 @@ export default {
         getConfig(env.DB, 'system_paused'),
       ]);
       const isPaused = isPausedConfig === '1';
+      const emailNotice = await getConfig(env.DB, 'email_notice');
       const dashboardHtml = getDashboardHtml({
         total_subscribers: subscribers.length,
         active_subscribers: subscribers.filter((s: any) => s.confirmed).length,
@@ -313,6 +314,7 @@ export default {
         total_cases: stats.total,
         era_cases: stats.era,
         ec_cases: stats.ec,
+        email_notice: emailNotice,
       });
       return htmlResponse(dashboardHtml);
     }
@@ -1215,7 +1217,20 @@ Rules:
         ec_cases: ecCases,
         sending_address: env.SENDING_ADDRESS,
         site_url: env.SITE_URL,
+        email_notice: await getConfig(env.DB, 'email_notice'),
       });
+    }
+
+    // POST /admin/notice-banner — Set or clear the email notice banner
+    if (request.method === 'POST' && url.pathname === '/admin/notice-banner') {
+      try {
+        const body = await request.json() as { notice?: string };
+        const notice = body.notice?.trim() ?? '';
+        await setConfig(env.DB, 'email_notice', notice);
+        return jsonResponse({ success: true, notice: notice || null });
+      } catch (err) {
+        return jsonResponse({ error: String(err) }, 500);
+      }
     }
 
     // POST /admin/seed-seen
