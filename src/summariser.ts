@@ -136,10 +136,16 @@ async function resolveEraPrompt(db?: D1Database): Promise<string> {
       const row = await db
         .prepare("SELECT value FROM config WHERE key = 'prompt_era'")
         .first<{ value: string }>();
-      if (row?.value?.trim()) return row.value.trim();
-    } catch {
-      console.warn('ERA Digest: Could not read prompt_era from D1, using hardcoded fallback');
+      if (row?.value?.trim()) {
+        console.log(`resolveEraPrompt: using D1 prompt_era (${row.value.length} chars, starts with: "${row.value.trim().slice(0, 60)}...")`);
+        return row.value.trim();
+      }
+      console.warn('resolveEraPrompt: D1 prompt_era is empty — using hardcoded fallback');
+    } catch (err) {
+      console.warn(`ERA Digest: Could not read prompt_era from D1, using hardcoded fallback: ${err}`);
     }
+  } else {
+    console.warn('resolveEraPrompt: no DB provided — using hardcoded fallback');
   }
   return SYSTEM_PROMPT;
 }
