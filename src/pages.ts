@@ -1004,12 +1004,19 @@ export function awardsPage(rows: CaseAwardWithCase[]): string {
 
   const tableRows = rows.map(r => {
     const title = toTitleCase(decodeHtmlEntities(r.title));
-    const citation = r.category ? escapeHtml(r.category) : '';
     const outcome = r.outcome ?? 'none';
     const contribPct = r.contribution_applied === 1 && r.contribution_reduction
       ? escapeHtml(r.contribution_reduction) : '—';
+    // Case detail link (determination view page)
+    const detailLink = r.case_url
+      ? `<a href="${escapeHtml(r.case_url)}" target="_blank" rel="noopener" style="font-weight:600;">View →</a>`
+      : '—';
+    // PDF link (secondary)
+    const pdfLink = r.pdf_url
+      ? `<a href="${escapeHtml(r.pdf_url)}" target="_blank" rel="noopener" style="font-size:11px;color:${COLORS.muted};">PDF</a>`
+      : '';
     return `<tr>
-  <td style="font-weight:500;">${escapeHtml(title)}${citation ? `<br><span style="font-size:12px;color:${COLORS.muted};">${citation}</span>` : ''}</td>
+  <td style="font-weight:500;">${escapeHtml(title)}</td>
   <td style="text-align:right;white-space:nowrap;">${fmtDollar(r.hhd_amount)}</td>
   <td style="text-align:right;white-space:nowrap;">${fmtDollar(r.lost_wages)}</td>
   <td style="text-align:right;">${fmtWeeks(r.lost_wages_weeks)}</td>
@@ -1018,7 +1025,7 @@ export function awardsPage(rows: CaseAwardWithCase[]): string {
   <td style="text-align:right;white-space:nowrap;">${fmtDollar(r.costs_awarded)}</td>
   <td style="text-align:center;">${r.reinstatement ? '✓' : '—'}</td>
   <td style="${outcomeColor[outcome] ?? ''}">${outcomeLabel[outcome] ?? '—'}</td>
-  <td style="font-size:12px;">${r.pdf_url ? `<a href="${escapeHtml(r.pdf_url)}" target="_blank" rel="noopener">PDF</a>` : '—'}</td>
+  <td style="text-align:center;white-space:nowrap;">${detailLink}${pdfLink ? `<br>${pdfLink}` : ''}</td>
 </tr>`;
   }).join('\n');
 
@@ -1185,7 +1192,7 @@ export function awardsPage(rows: CaseAwardWithCase[]): string {
             <th class="right">Costs</th>
             <th class="center">Reinstate</th>
             <th>Outcome</th>
-            <th></th>
+            <th class="center">Links</th>
           </tr>
         </thead>
         <tbody>
