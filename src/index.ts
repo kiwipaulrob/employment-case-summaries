@@ -1565,7 +1565,7 @@ async function runDigest(env: Env, force = false, limit = 3): Promise<RunResult>
       } else {
         try {
           const pdfContent = await getPdfContent(c.pdfUrl, usePdfPassthrough);
-          const summaryResult = await summariseCase(c, pdfContent, env.OPENROUTER_API_KEY, env.OPENROUTER_MODEL);
+          const summaryResult = await summariseCase(c, pdfContent, env.OPENROUTER_API_KEY, env.OPENROUTER_MODEL, env.DB);
           summary = summaryResult.summary;
           success = summaryResult.success;
           if (!success) result.failed++;
