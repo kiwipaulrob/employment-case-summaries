@@ -314,6 +314,8 @@ export default {
         total_cases: stats.total,
         era_cases: stats.era,
         ec_cases: stats.ec,
+        cron_schedule: env.CRON_SCHEDULE,
+        timezone: env.TIMEZONE,
         email_notice: emailNotice,
       });
       return htmlResponse(dashboardHtml);
@@ -1217,6 +1219,8 @@ Rules:
         ec_cases: ecCases,
         sending_address: env.SENDING_ADDRESS,
         site_url: env.SITE_URL,
+        cron_schedule: env.CRON_SCHEDULE,
+        timezone: env.TIMEZONE,
         email_notice: await getConfig(env.DB, 'email_notice'),
       });
     }

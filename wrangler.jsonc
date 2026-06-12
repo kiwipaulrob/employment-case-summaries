@@ -67,6 +67,7 @@
     "SENDING_ADDRESS": "digest@whenroutinebiteshard.com",
     "TIMEZONE": "Pacific/Auckland",
     "TRIGGER_MODE": "scheduled",
-    "SITE_URL": "https://whenroutinebiteshard.com"
+    "SITE_URL": "https://whenroutinebiteshard.com",
+    "CRON_SCHEDULE": "Daily at 8am NZT (dual cron for DST)"
   }
 }
