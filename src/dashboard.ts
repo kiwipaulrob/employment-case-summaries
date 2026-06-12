@@ -13,6 +13,8 @@ export function getDashboardHtml(status: {
   era_cases: number;
   ec_cases: number;
   email_notice?: string | null;
+  cron_schedule: string;
+  timezone: string;
 }): string {
   // Server-side relative time formatter
   function relativeTime(iso: string | null): string {
@@ -342,6 +344,14 @@ export function getDashboardHtml(status: {
           <div class="stat-item">
             <div class="stat-label">Active Subscribers</div>
             <div class="stat-value">${status.active_subscribers}/${status.total_subscribers}</div>
+          </div>
+          <div class="stat-item">
+            <div class="stat-label">Digest Schedule</div>
+            <div class="stat-value">${status.cron_schedule}</div>
+          </div>
+          <div class="stat-item">
+            <div class="stat-label">Timezone</div>
+            <div class="stat-value">${status.timezone}</div>
           </div>
         </div>
 

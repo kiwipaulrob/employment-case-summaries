@@ -88,6 +88,9 @@ export interface Env {
 
   // HTTP handler auth
   ADMIN_SECRET: string;
+
+  // Cron schedule for display
+  CRON_SCHEDULE: string;           // e.g. "Daily at 8am NZT (dual cron for DST)"
 }
 
 // ─── OpenRouter API ───────────────────────────────────────────────────────────
