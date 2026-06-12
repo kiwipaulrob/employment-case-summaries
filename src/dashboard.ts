@@ -417,7 +417,7 @@ export function getDashboardHtml(status: {
           <label for="era-pdf-url">ERA PDF URL</label>
           <input type="url" id="era-pdf-url" placeholder="https://determinations.era.govt.nz/assets/elawpdf/YYYY/YYYY-NZERA-NNN.pdf" style="font-family: monospace; font-size: 0.9rem;">
         </div>
-        <button type="button" class="button" onclick="uploadEraUrl()">Process Case</button>
+        <button type="button" class="button" id="btn-era-url" onclick="withLoading('btn-era-url', uploadEraUrl)">Process Case</button>
         <div id="era-url-status" style="margin-top: 1.5rem;"></div>
       </div>
 
@@ -429,7 +429,7 @@ export function getDashboardHtml(status: {
           <input type="number" id="era-backfill-pages" min="1" max="5" value="3">
           <small>1 page = ~10 most recent cases. 3 pages = ~30 cases (last 10–15 days). Max 5.</small>
         </div>
-        <button type="button" class="button" onclick="runEraBackfill()">Scrape &amp; Process</button>
+        <button type="button" class="button" id="btn-backfill" onclick="withLoading('btn-backfill', runEraBackfill)">Scrape &amp; Process</button>
         <div id="era-backfill-status" style="margin-top: 1.5rem;"></div>
       </div>
     </div>
@@ -550,8 +550,8 @@ export function getDashboardHtml(status: {
           </div>
 
           <div style="display: flex; gap: 1rem; margin-top: 1.5rem;">
-            <button type="button" class="button" onclick="rescanSilently()">Rescan Silently</button>
-            <button type="button" class="button" onclick="rescanAndSendEmail()">Rescan & Send Email</button>
+            <button type="button" class="button" id="btn-rescan-silent" onclick="if(confirm('Delete the most recent cases and rescan them? This cannot be undone.')) withLoading('btn-rescan-silent', rescanSilently)">Rescan Silently</button>
+            <button type="button" class="button" id="btn-rescan-send" onclick="if(confirm('Delete + rescan and send a digest email with the updated summaries? This will email all active subscribers.')) withLoading('btn-rescan-send', rescanAndSendEmail)">Rescan & Send Email</button>
           </div>
 
           <div id="rescan-status"></div>
@@ -576,7 +576,7 @@ export function getDashboardHtml(status: {
         </div>
 
         <div style="display: flex; gap: 1rem; margin-top: 1.5rem;">
-          <button type="button" class="button" onclick="backfillAwards()">Extract Awards from All Cases</button>
+          <button type="button" class="button" id="btn-awards" onclick="withLoading('btn-awards', backfillAwards)">Extract Awards from All Cases</button>
           <a href="/awards" target="_blank" class="button" style="background:#fff;color:#333;border:1px solid #ccc;text-decoration:none;">View Public Awards Page ↗</a>
         </div>
 
@@ -586,6 +586,19 @@ export function getDashboardHtml(status: {
   </div>
 
   <script>
+    // Loading spinner helper — disables a button, shows spinner, runs callback
+    function withLoading(buttonId, fn) {
+      const btn = typeof buttonId === 'string' ? document.getElementById(buttonId) : buttonId;
+      if (!btn) return fn();
+      const originalHTML = btn.innerHTML;
+      btn.disabled = true;
+      btn.innerHTML = '<span class="spinner" style="vertical-align:middle;"></span> Processing…';
+      return Promise.resolve(fn()).finally(() => {
+        btn.disabled = false;
+        btn.innerHTML = originalHTML;
+      });
+    }
+
     function switchTab(event, tabName) {
       event.preventDefault();
       document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
