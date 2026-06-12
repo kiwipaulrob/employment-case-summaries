@@ -827,8 +827,6 @@ export default {
           ).bind(c.source, c.pdf_filename).run();
         }
 
-        }
-
         // Reset last_era_id to a point below the deleted cases so the next
         // internal-index probe will re-find them. Extract era_case_id from
         // each case's case_url (e.g. /determination/view/21324 → 21324).
@@ -844,7 +842,7 @@ export default {
         await setConfig(env.DB, 'last_era_id', String(resetTo));
         console.log(`Rescan: reset last_era_id to ${resetTo} for reprocessing`);
 
-        // If sendEmail, set a notice banner, then trigger pipeline
+        // Trigger pipeline — always reprocess rescanned cases
         if (sendEmail && recentCases.length > 0) {
           await setConfig(env.DB, 'email_notice',
             `Updated summaries for ${recentCases.length} recently rescanned case(s) (new prompt applied).`
@@ -861,7 +859,7 @@ export default {
           send_email: sendEmail,
           message: sendEmail
             ? `Deleted ${recentCases.length} cases, setting notice banner and triggering pipeline.`
-            : `Deleted ${recentCases.length} cases. Run /admin/send-digest to email, or wait for next cron.`
+            : `Deleted ${recentCases.length} cases and triggered silent reprocessing. Check results on the home page.`,
         });
       } catch (err) {
         return jsonResponse({ error: String(err) }, 500);
