@@ -5,11 +5,12 @@ An automated system that scrapes employment law case determinations from the New
 ## 🎯 Overview
 
 This project provides:
-- **Daily automated scraping** of ERA case determinations
+- **Daily automated scraping** of ERA case determinations via the ERA's sequential internal index
 - **AI-powered summaries** using OpenRouter (Claude Sonnet 4.6)
 - **Email distribution** to subscribers via Cloudflare Email Service
 - **Public archive** of recent cases with advanced search
-- **Admin dashboard** for system management and Employment Court case uploads
+- **Public awards & damages statistics page** at `/awards` — remedy data, contribution analysis, penalty trends
+- **Admin dashboard** for system management, prompt editing, backfill, and Employment Court case uploads
 - **Double opt-in subscription** with GDPR-compliant unsubscribe links
 
 ## 🏗️ Architecture
@@ -41,15 +42,15 @@ This project provides:
 
 **Employment Relations Authority (Automated Daily)**
 1. Cron triggers at 8am NZT (daily)
-2. Scrape https://determinations.era.govt.nz/determinations/recent
-3. Extract case metadata (parties, citation, PDF URL)
-4. Check D1 `seen_cases` table for duplicates
+2. Probe ERA internal index `/determination/view/{id}` from last known ID upward (parallel batches of 5, 300ms delay)
+3. Extract case metadata (parties, citation, PDF URL, member, date) from the detail page HTML table
+4. Check D1 `seen_cases` table for duplicates (by pdf_filename)
 5. Fetch PDF → extract text (FlateDecode/zlib decompression)
-6. Send text to OpenRouter LLM → receive structured summary
-7. Store summary in D1
+6. Send text to OpenRouter LLM → receive structured summary with AWARDS_DATA block
+7. Store summary + structured awards data in D1
 8. Compose HTML email with all new cases
 9. Send to all active subscribers
-10. Log run metadata
+10. Log run metadata, update `last_era_id` high-water mark
 
 **Employment Court (Manual via Admin Dashboard)**
 1. User uploads EC PDF via admin dashboard
@@ -271,6 +272,7 @@ See [Python Sidecar Setup](./docs/PYTHON_SIDECAR.md) for details.
 | `/admin/preview-digest` | GET | Cookie | Preview email HTML |
 | `/admin/dashboard/backfill-era` | POST | Cookie | Scrape ERA pages 1–N silently (no email) |
 | `/admin/dashboard/upload-era-url` | POST | Cookie | Process a single ERA case by PDF URL |
+| `/admin/dashboard/backfill-awards` | POST | Cookie | Extract awards data from existing summaries |
 | `/admin/dashboard/get-prompts` | GET | Cookie | Load LLM prompts from D1 |
 | `/admin/dashboard/update-prompts` | POST | Cookie | Save LLM prompts to D1 |
 | `/admin/dashboard/revert-prompt` | POST | Cookie | Revert prompt to a previous version |
@@ -282,11 +284,13 @@ See [Python Sidecar Setup](./docs/PYTHON_SIDECAR.md) for details.
 | `/admin/test-email` | POST | Bearer | Send test email to first subscriber |
 | `/admin/delete-subscriber` | POST | Cookie | Delete a subscriber |
 | `/admin/delete-seen-case` | POST | Bearer | Delete a single case from seen_cases |
+| `/admin/backfill-status` | GET | Cookie | Backfill progress (scrape_status counts) |
 
 **Additional public routes:**
 | Endpoint | Method | Auth | Description |
 |----------|--------|------|-------------|
 | `/awards` | GET | None | Public awards & damages statistics |
+| `/remedies` | GET | None | Redirects to /awards |
 | `/preferences?token=X` | GET | None | Per-subscriber preferences page |
 | `/subscribed` | GET | None | "Check your email" confirmation page |
 
@@ -338,6 +342,8 @@ All 12 migrations in the `migrations/` directory run automatically on deploy:
 | `0010_add_case_awards.sql` | Awards tracking table (remedy amounts) |
 | `0011_add_subscriber_preferences.sql` | Add preferences JSON column |
 | `0012_prompt_versions.sql` | Prompt version history for undo/rollback |
+| `0013_add_summary_version.sql` | Track prompt version per case summary |
+| `0015_add_extended_awards.sql` | Extended awards: contribution, penalties, tenure |
 
 To apply migrations manually:
 ```bash
