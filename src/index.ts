@@ -33,7 +33,7 @@
 
 import { EmailMessage } from 'cloudflare:email';
 import type { D1Database } from '@cloudflare/workers-types';
-import type { Env, ProcessedCase } from './types';
+import type { Env, ProcessedCase, CaseListing } from './types';
 import {
   filterNewCases, markCaseSeen, getActiveSubscribers, getAllSubscribers,
   hasEmailBeenSentToday, recordEmailSent, recordRunAt, getRecentCases, getRecentCasesPaged, getCaseCountPaged, getCaseStatistics,
@@ -43,7 +43,7 @@ import {
   insertCaseAward, getCaseAwardRows, getCasesWithoutAwards,
   savePromptWithHistory, getPromptVersions, revertPromptToVersion,
 } from './db';
-import { scrapeRecentPage, scrapeAllPages, enrichCasesWithDetails } from './scraper';
+import { scrapeRecentPage, scrapeAllPages, enrichCasesWithDetails, scrapeEraDetailPage } from './scraper';
 import { getPdfContent, getPdfContentFromBytes, type PdfContent } from './pdf';
 import { summariseCase } from './summariser';
 import { summariseEmploymentCourtCase } from './summariserEmploymentCourt';
@@ -1527,10 +1527,59 @@ async function runDigest(env: Env, force = false, limit = 3): Promise<RunResult>
     await setProcessingLock(env.DB, true);
     console.log('ERA Digest: Processing lock acquired');
 
-    // Step 2: Scrape
-    console.log(`ERA Digest: scraping ${env.SOURCE_URL}`);
-    let allCases = await scrapeRecentPage(env.SOURCE_URL);
-    console.log(`ERA Digest: found ${allCases.length} cases`);
+    // Step 2: Scrape — probe ERA internal index for new cases
+    //
+    // Replaces the old approach of scraping /recent?start=N which was limited
+    // to ~38 cases. The internal index (/determination/view/{id}) is perfectly
+    // sequential — every integer from 1 to the current max resolves to a real
+    // case. New cases always appear at the highest IDs.
+    //
+    // Probe strategy: start from a known high-water mark, fetch IDs in parallel
+    // batches of 5 with a 300ms delay between batches. Stop at 3 consecutive
+    // 404s within a batch.
+    const probeStart = 21300; // Conservative floor — current max is ~21325
+    const probeBatchSize = 5;
+    const probeLimit = Math.min(limit * 2, 20); // Probe more than we'll process
+    let allCases: CaseListing[] = [];
+    let consecutiveMisses = 0;
+
+    for (let offset = 0; offset < probeLimit && consecutiveMisses < 3; offset += probeBatchSize) {
+      const batchIds = Array.from({ length: probeBatchSize }, (_, i) => probeStart + offset + i);
+      const batchResults = await Promise.all(
+        batchIds.map(id =>
+          scrapeEraDetailPage(id).catch(() => null)
+        )
+      );
+
+      // Add successes, stop early on 3 consecutive 404s
+      let batchHits = 0;
+      for (const detail of batchResults) {
+        if (detail) {
+          batchHits++;
+          consecutiveMisses = 0;
+          allCases.push({
+            caseId: detail.caseId,
+            title: detail.title,
+            caseUrl: detail.caseUrl,
+            pdfUrl: detail.pdfUrl,
+            member: detail.member,
+            datePublished: detail.datePublished,
+            category: detail.category,
+          });
+        } else {
+          consecutiveMisses++;
+        }
+      }
+
+      // If every ID in this batch missed, increment the counter
+      if (batchHits === 0) consecutiveMisses += probeBatchSize;
+
+      if (offset + probeBatchSize < probeLimit) {
+        await new Promise(r => setTimeout(r, 300));
+      }
+    }
+
+    console.log(`ERA Digest: probed IDs ${probeStart}–${probeStart + probeLimit}, found ${allCases.length} new case(s)`);
 
     // Step 3: Filter
     let newCases = await filterNewCases(env.DB, allCases);

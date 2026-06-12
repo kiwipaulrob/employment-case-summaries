@@ -221,3 +221,62 @@ export async function fetchCaseDetail(caseUrl: string): Promise<{
   await rewriter.transform(response).arrayBuffer();
   return { pdfUrl, title: null, member: null, datePublished: null, category: null };
 }
+
+/**
+ * ERA Detail Page: Parses /determination/view/{id}
+ * Extracts structured metadata from the HTML table.
+ * Returns null if the ID is out of range (404).
+ */
+export async function scrapeEraDetailPage(eraId: number): Promise<{
+  caseId: string;
+  title: string;
+  caseUrl: string;
+  pdfUrl: string | null;
+  member: string | null;
+  datePublished: string | null;
+  category: string | null;
+} | null> {
+  const url = `${BASE_URL}/determination/view/${eraId}`;
+  const response = await fetch(url, { headers: { 'User-Agent': USER_AGENT } });
+  if (!response.ok) {
+    if (response.status === 404) return null;
+    throw new Error(`view/${eraId} returned HTTP ${response.status}`);
+  }
+
+  const html = await response.text();
+
+  // Parse table rows: <tr><th>Label</th><td>Value</td></tr>
+  const fields = new Map<string, string>();
+  const rowRegex = /<tr[^>]*>\s*<th[^>]*>(.*?)<\/th>\s*<td[^>]*>(.*?)<\/td>\s*<\/tr>/gis;
+  let match: RegExpExecArray | null;
+  while ((match = rowRegex.exec(html)) !== null) {
+    const label = match[1].replace(/<[^>]+>/g, '').replace(/:/g, '').trim().toLowerCase();
+    const value = match[2].replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim();
+    if (label && value) fields.set(label, value);
+  }
+
+  // Find PDF link
+  let pdfUrl: string | null = null;
+  const pdfMatch = html.match(/href="([^"]*\/assets\/elawpdf\/[^"]*)"/i);
+  if (pdfMatch) {
+    pdfUrl = pdfMatch[1].startsWith('http') ? pdfMatch[1] : `${BASE_URL}${pdfMatch[1]}`;
+  }
+
+  const parties = fields.get('parties') || '';
+  const referenceNo = fields.get('reference no') || '';
+  const determinationDate = fields.get('determination date') || '';
+  const member = fields.get('member') || '';
+
+  const pdfFilename = pdfUrl ? pdfUrl.split('/').pop() || '' : '';
+  const caseId = pdfFilename.replace(/\.pdf$/i, '') || String(eraId);
+
+  return {
+    caseId,
+    title: parties || `ERA Case ${eraId}`,
+    caseUrl: url,
+    pdfUrl,
+    member: member || null,
+    datePublished: determinationDate || null,
+    category: referenceNo || null,
+  };
+}
