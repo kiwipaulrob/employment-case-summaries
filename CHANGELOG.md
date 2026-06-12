@@ -1,6 +1,33 @@
 # Changelog
 
-All notable changes to this project will be documented in this file.
+## [Unreleased]
+
+### Added
+- **Notice banner admin UI** (issue #44): Textarea on dashboard to set email notice banners without raw SQL.
+- **Loading spinners + confirmation dialogs** (issues #25, #17): Buttons disable and show spinners during async operations. Confirm dialogs before destructive rescan actions.
+- **Digest schedule on dashboard** (issue #16): Shows "Daily at 8am NZT (dual cron for DST)" and timezone in System Status.
+- **`summary_version` column** (issue #29): Migration 0013 tracks which prompt version generated each case summary.
+- **Encrypted PDF detection** (issue #43): Detects `/Encrypt` marker and throws a clear error before attempting extraction.
+- **Prompt injection wrapper** (issue #27): PDF content wrapped in `<document>` tags before LLM processing.
+- **Rate limiting** (issue #31): 20 req/min/IP on `/subscribe`, 10 req/min/IP on `/admin` login. Returns HTTP 429.
+- **Timing-safe password comparison** (issue #28): XOR-based constant-time comparison for admin auth.
+- **Relative timestamps** (issue #23): Dashboard shows "Xm ago", "Xh ago", "Yesterday" etc. instead of absolute timestamps.
+- **99 unit tests** across utils, emailer, pdf, and rate-limiter modules.
+
+### Fixed
+- **`sleep()` deduplicated** into shared utils.ts (was duplicated in both summarisers).
+- **Dynamic import replaced**: `db.ts` now calls `crypto.randomUUID()` directly instead of dynamic import.
+- **Double-encoding guardrail**: `validateSummaryNotDoubleEncoded()` prevents corrupted summaries from entering the DB.
+- **Email notice banner timing**: Notice is only cleared AFTER successful email dispatch, not before.
+- **`/admin/errors` now functional**: Queries `config:last_error` instead of returning hardcoded `[]`.
+- **`/admin/clear-seen` requires confirmation**: Sending `{'confirm': true}` prevents accidental data loss.
+- **Pipeline errors logged**: Fatal errors in `runDigest()` are stored to `config:last_error` for retrieval.
+- **Case processing is per-case**: One bad PDF no longer crashes the entire daily digest batch.
+
+### Changed
+- **README.md** (issue #37): Updated model name, deployment method, migration table, API endpoints, docs links.
+- **DEPLOYMENT.md** (issue #38): Browser Paste method replaced with GitHub Actions as primary.
+- **`.env.example`** (issue #40): Hardcoded D1 database ID replaced with placeholder.
 
 ## [Unreleased]
 
