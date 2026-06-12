@@ -191,9 +191,9 @@ function buildMessages(
       content:
         metaPreamble +
         'Full determination text:\n\n' +
-        '---\n' +
+        '<document>\n' +
         textContent +
-        '\n---',
+        '\n</document>',
     },
   ];
 }

@@ -58,6 +58,7 @@ import {
 } from './pages';
 import { getDashboardHtml } from './dashboard';
 import { isValidEmail, parseAwardsBlock, timingSafeEqual } from './utils';
+import { checkRateLimit, getClientIp } from './rate-limiter';
 
 // ─── Cookie helpers ───────────────────────────────────────────────────────────
 
@@ -185,8 +186,11 @@ export default {
       }
     }
 
-    // POST /subscribe — Handle sign-up form
+    // POST /subscribe — Handle sign-up form (rate limited: 20/IP/min)
     if (request.method === 'POST' && url.pathname === '/subscribe') {
+      if (!checkRateLimit(getClientIp(request))) {
+        return new Response('Too many requests. Please try again later.', { status: 429 });
+      }
       const formData = await request.formData();
       const email = (formData.get('email') as string ?? '').trim().toLowerCase();
       const name = (formData.get('name') as string ?? '').trim() || null;
@@ -313,8 +317,11 @@ export default {
       return htmlResponse(dashboardHtml);
     }
 
-    // POST /admin — Login form submission
+    // POST /admin — Login form submission (rate limited: 10/IP/min)
     if (request.method === 'POST' && url.pathname === '/admin') {
+      if (!checkRateLimit(getClientIp(request), 10, 60_000)) {
+        return new Response('Too many requests. Please try again later.', { status: 429 });
+      }
       const formData = await request.formData();
       const password = (formData.get('password') as string ?? '').trim();
       if (!timingSafeEqual(password, env.ADMIN_SECRET)) {

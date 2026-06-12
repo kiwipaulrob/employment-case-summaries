@@ -53,7 +53,7 @@ Edit `wrangler.jsonc` → `vars` section:
   "ADMIN_EMAIL": "admin@yourdomain.com",       // Alert recipient
   "SITE_URL": "https://yourdomain.com",        // Your domain
   "TIMEZONE": "Pacific/Auckland",               // Your timezone
-  "OPENROUTER_MODEL": "anthropic/claude-3.5-sonnet-20241022"
+  "OPENROUTER_MODEL": "anthropic/claude-sonnet-4.6"
 }
 ```
 
@@ -95,28 +95,19 @@ wrangler secret put ADMIN_SECRET
 
 ## Step 4: Deploy
 
-### Option A: Browser Paste (Easiest)
+### GitHub Actions (Recommended)
 
-1. Go to **Cloudflare Dashboard** → **Workers & Pages**
-2. Click **era-digest-worker** (or create it if needed)
-3. Click **Edit Code** button
-4. Copy the entire contents of `src/index.ts` 
-5. Paste into the Cloudflare Quick Editor
-6. ⚠️ Ignore TypeScript warning about `gzip | deflate | deflate-raw`
-7. Click **Save and Deploy**
+Deployment is automatic on push to `main`. The workflow is defined in `.github/workflows/deploy.yml`.
 
-**Repeat for other files:**
-- `src/dashboard.ts` → Replace in editor
-- `src/db.ts` → Replace in editor
-- (Continue for all files in `src/`)
-
-### Option B: CLI Deploy
+### CLI Deploy (Manual Fallback)
 
 ```bash
 npm run deploy
 ```
 
-This automatically bundles and deploys all TypeScript files.
+This bundles all TypeScript files and deploys via `wrangler deploy`.
+
+> ⚠️ Do NOT use the Cloudflare Dashboard Quick Editor / browser paste method for full deployments — it does not bundle all source files correctly. The Quick Editor is only suitable for testing small snippets. Always use `wrangler deploy` or the GitHub Actions workflow for production deployments.
 
 ## Step 5: Verify Deployment
 
