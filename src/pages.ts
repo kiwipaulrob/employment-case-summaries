@@ -900,6 +900,61 @@ export function awardsPage(rows: CaseAwardWithCase[]): string {
   const mixedOutcomes  = rows.filter(r => r.outcome === 'mixed').length;
   const total = rows.length;
 
+  // ── New award stats: contribution & penalties ──────────────────────────────
+  const contributionCases = rows.filter(r => r.contribution_applied === 1);
+  const contributionCount = contributionCases.length;
+  const reductionPcts = contributionCases
+    .map(r => r.contribution_reduction ? parseFloat(r.contribution_reduction.replace(/%\s*\(calculated\)/i, '').replace(/[^\d.]/g, '')) : null)
+    .filter((n): n is number => n !== null && !isNaN(n));
+  const avgReduction = reductionPcts.length > 0
+    ? Math.round((reductionPcts.reduce((a, b) => a + b, 0) / reductionPcts.length) * 10) / 10
+    : null;
+
+  const penaltyArr = rows.filter(r => r.penalties != null && r.penalties > 0).map(r => r.penalties!);
+  const penaltyStats = {
+    count: penaltyArr.length,
+    avg: penaltyArr.length > 0 ? Math.round(penaltyArr.reduce((a, b) => a + b, 0) / penaltyArr.length) : null,
+    max: penaltyArr.length > 0 ? Math.max(...penaltyArr) : null,
+  };
+
+  const costsWithData = rows.filter(r => r.costs_awarded != null && r.costs_awarded > 0).map(r => r.costs_awarded!);
+  const costsReserved = rows.filter(r => r.costs_awarded_text === 'reserved').length;
+  const costsStats = {
+    count: costsWithData.length,
+    avg: costsWithData.length > 0 ? Math.round(costsWithData.reduce((a, b) => a + b, 0) / costsWithData.length) : null,
+    reserved: costsReserved,
+  };
+
+  // ── Penalty distribution chart ────────────────────────────────────────────
+  const penaltyBuckets = [
+    { label: 'Nil', count: rows.filter(r => !r.penalties || r.penalties === 0).length },
+    { label: '$1–5k',  count: penaltyArr.filter(n => n >= 1    && n <= 5000 ).length },
+    { label: '$5–15k', count: penaltyArr.filter(n => n > 5000  && n <= 15000).length },
+    { label: '$15k+',  count: penaltyArr.filter(n => n > 15000).length },
+  ];
+  const penaltyMax = Math.max(...penaltyBuckets.map(b => b.count), 1);
+
+  // SVG helper for bar charts
+  function renderBarChart(buckets: { label: string; count: number }[], maxCount: number): string {
+    const cH = 140, cBarW = 60, cGap = 20, cLeft = 24, cTop = 20;
+    const cSvgW = cLeft + buckets.length * (cBarW + cGap) - cGap + 4;
+    const cSvgH = cH + cTop + 36;
+    const bars = buckets.map((b, i) => {
+      const h = Math.max(Math.round((b.count / maxCount) * cH), b.count > 0 ? 4 : 0);
+      const x = cLeft + i * (cBarW + cGap);
+      const y = cTop + cH - h;
+      const fill = b.count === 0 ? '#e2e8f0' : '#059669';
+      return `
+    <rect x="${x}" y="${y}" width="${cBarW}" height="${h}" fill="${fill}" rx="3"/>
+    ${b.count > 0 ? `<text x="${x + cBarW / 2}" y="${y - 6}" text-anchor="middle" font-size="12" fill="#374151" font-weight="600">${b.count}</text>` : ''}
+    <text x="${x + cBarW / 2}" y="${cTop + cH + 16}" text-anchor="middle" font-size="11" fill="#64748b">${b.label}</text>`;
+    }).join('');
+    return `<svg viewBox="0 0 ${cSvgW} ${cSvgH}" width="${cSvgW}" height="${cSvgH}" style="overflow:visible;display:block;">
+    <text x="8" y="${cTop + cH / 2}" text-anchor="middle" font-size="10" fill="#94a3b8" transform="rotate(-90,8,${cTop + cH / 2})">Cases</text>
+    ${bars}
+  </svg>`;
+  }
+
   // ── HHD distribution chart ─────────────────────────────────────────────────
   const buckets = [
     { label: 'Nil', count: rows.filter(r => !r.hhd_amount || r.hhd_amount === 0).length },
@@ -951,12 +1006,16 @@ export function awardsPage(rows: CaseAwardWithCase[]): string {
     const title = toTitleCase(decodeHtmlEntities(r.title));
     const citation = r.category ? escapeHtml(r.category) : '';
     const outcome = r.outcome ?? 'none';
+    const contribPct = r.contribution_applied === 1 && r.contribution_reduction
+      ? escapeHtml(r.contribution_reduction) : '—';
     return `<tr>
   <td style="font-weight:500;">${escapeHtml(title)}${citation ? `<br><span style="font-size:12px;color:${COLORS.muted};">${citation}</span>` : ''}</td>
-  <td style="text-align:right;">${fmtDollar(r.hhd_amount)}</td>
-  <td style="text-align:right;">${fmtDollar(r.lost_wages)}</td>
+  <td style="text-align:right;white-space:nowrap;">${fmtDollar(r.hhd_amount)}</td>
+  <td style="text-align:right;white-space:nowrap;">${fmtDollar(r.lost_wages)}</td>
   <td style="text-align:right;">${fmtWeeks(r.lost_wages_weeks)}</td>
-  <td style="text-align:right;">${fmtDollar(r.costs_awarded)}</td>
+  <td style="text-align:center;">${contribPct}</td>
+  <td style="text-align:right;white-space:nowrap;">${fmtDollar(r.penalties)}</td>
+  <td style="text-align:right;white-space:nowrap;">${fmtDollar(r.costs_awarded)}</td>
   <td style="text-align:center;">${r.reinstatement ? '✓' : '—'}</td>
   <td style="${outcomeColor[outcome] ?? ''}">${outcomeLabel[outcome] ?? '—'}</td>
   <td style="font-size:12px;">${r.pdf_url ? `<a href="${escapeHtml(r.pdf_url)}" target="_blank" rel="noopener">PDF</a>` : '—'}</td>
@@ -1071,6 +1130,46 @@ export function awardsPage(rows: CaseAwardWithCase[]): string {
       <p style="font-size:12px;color:${COLORS.muted};margin-top:12px;">Distribution of hurt, humiliation &amp; distress awards across ${total} ERA cases.</p>
     </div>
 
+    <!-- Contribution & Penalties stats -->
+    <p class="stat-row-label">Contributory conduct &amp; penalties</p>
+    <div class="awards-stats" style="margin-bottom:32px;">
+      <div class="awards-stat">
+        <div class="awards-stat-value">${contributionCount}</div>
+        <div class="awards-stat-label">Cases with contribution applied (${total > 0 ? Math.round(contributionCount / total * 100) : 0}%)</div>
+      </div>
+      <div class="awards-stat">
+        <div class="awards-stat-value">${avgReduction !== null ? avgReduction + '%' : '—'}</div>
+        <div class="awards-stat-label">Average contribution reduction</div>
+      </div>
+      <div class="awards-stat">
+        <div class="awards-stat-value">${penaltyStats.count}</div>
+        <div class="awards-stat-label">Cases with penalties (${total > 0 ? Math.round(penaltyStats.count / total * 100) : 0}%)</div>
+      </div>
+      <div class="awards-stat">
+        <div class="awards-stat-value">${fmtDollar(penaltyStats.avg)}</div>
+        <div class="awards-stat-label">Average penalty amount</div>
+      </div>
+      <div class="awards-stat">
+        <div class="awards-stat-value">${fmtDollar(penaltyStats.max)}</div>
+        <div class="awards-stat-label">Highest penalty</div>
+      </div>
+      <div class="awards-stat">
+        <div class="awards-stat-value">${costsStats.count}</div>
+        <div class="awards-stat-label">Costs awarded ${costsStats.reserved > 0 ? `(${costsStats.reserved} reserved)` : ''}</div>
+      </div>
+    </div>
+
+    <!-- Penalty distribution chart -->
+    ${penaltyStats.count > 0 ? `
+    <div class="awards-section">
+      <h2>Penalty distribution</h2>
+      <div style="overflow-x:auto;padding-bottom:4px;">
+        ${renderBarChart(penaltyBuckets, penaltyMax)}
+      </div>
+      <p style="font-size:12px;color:${COLORS.muted};margin-top:12px;">Distribution of statutory penalties ordered against respondents.</p>
+    </div>
+    ` : ''}
+
     <!-- Case detail table -->
     <div class="awards-section" style="overflow-x:auto;">
       <h2>Case detail</h2>
@@ -1081,6 +1180,8 @@ export function awardsPage(rows: CaseAwardWithCase[]): string {
             <th class="right">HHD</th>
             <th class="right">Lost wages</th>
             <th class="right">Weeks</th>
+            <th class="center">Contrib.</th>
+            <th class="right">Penalty</th>
             <th class="right">Costs</th>
             <th class="center">Reinstate</th>
             <th>Outcome</th>

@@ -91,11 +91,17 @@ AWARDS DATA EXTRACTION (append this block at the very end of your response, afte
 After you finish the REMEDY section, output the following structured block verbatim — it is stripped before display and used only for analytics. Use "nil" for any field that is not awarded, not stated, or not applicable.
 
 AWARDS_DATA
+Decision date: [YYYY-MM-DD format if stated, otherwise nil]
+Employment tenure: [duration of the employment relationship if stated, e.g., 2.5 years, 6 months — or nil]
 HHD: [dollar amount of hurt/humiliation/distress award, e.g. $12,500 — or nil]
 Lost wages: [total dollar amount of lost wages/wage compensation ordered, e.g. $8,400 — or nil]
 Weekly wage: [weekly wage of the claimant if stated anywhere in the determination, e.g. $950 — or nil]
 Lost wages weeks: [number of weeks the lost wages figure represents, e.g. 8.8 — or nil if cannot be calculated]
-Costs: [dollar amount of any costs order, e.g. $2,500 — or nil]
+Contribution applied: [yes if the Authority reduced any remedy due to the employee's contributory conduct under section 114, regardless of whether a specific percentage is stated. Otherwise, no]
+Contribution reduction: [Percentage reduction applied. If explicitly stated, output the percentage (e.g., 25%). If the Authority applies a reduction by lowering the dollar amount without stating a percentage, calculate the implied percentage ONLY if both the starting and final figures are clear, and format it as "X% (calculated)". Otherwise, output nil.]
+Contribution conduct: [Brief 1-2 sentence description of the specific conduct that justified the reduction, e.g. "Failing to follow established cash-handling protocols" — or nil]
+Penalties: [total dollar amount of statutory penalties ordered against the respondent, e.g. $3,000 — or nil]
+Costs: [dollar amount, e.g. $2,500, OR write "reserved" if the Authority deferred the costs decision, OR nil]
 Reinstatement: [yes or no]
 Outcome: [applicant if the employee/applicant succeeded; respondent if the employer/respondent succeeded; mixed if partial; none if no determination on merits]
 AWARDS_DATA_END`;

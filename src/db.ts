@@ -662,10 +662,17 @@ export interface CaseAwardRow {
   lost_wages_weeks: number | null;
   weekly_wage: number | null;
   costs_awarded: number | null;
+  costs_awarded_text: string | null;
   reinstatement: number;
   outcome: string | null;
   extraction_method: string;
   created_at: string;
+  decision_date: string | null;
+  employment_tenure: string | null;
+  contribution_applied: number;
+  contribution_reduction: string | null;
+  contribution_conduct: string | null;
+  penalties: number | null;
 }
 
 export interface CaseAwardWithCase extends CaseAwardRow {
@@ -690,8 +697,15 @@ export async function insertCaseAward(
     lost_wages_weeks: number | null;
     weekly_wage: number | null;
     costs_awarded: number | null;
+    costs_awarded_text?: string | null;
     reinstatement: boolean;
     outcome: string | null;
+    decision_date?: string | null;
+    employment_tenure?: string | null;
+    contribution_applied?: boolean;
+    contribution_reduction?: string | null;
+    contribution_conduct?: string | null;
+    penalties?: number | null;
   },
   extractionMethod: string
 ): Promise<void> {
@@ -699,24 +713,40 @@ export async function insertCaseAward(
     .prepare(`
       INSERT INTO case_awards
         (pdf_filename, source, hhd_amount, lost_wages, lost_wages_weeks, weekly_wage,
-         costs_awarded, reinstatement, outcome, extraction_method)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         costs_awarded, costs_awarded_text, reinstatement, outcome, extraction_method,
+         decision_date, employment_tenure, contribution_applied, contribution_reduction,
+         contribution_conduct, penalties)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(pdf_filename, source) DO UPDATE SET
-        hhd_amount        = excluded.hhd_amount,
-        lost_wages        = excluded.lost_wages,
-        lost_wages_weeks  = excluded.lost_wages_weeks,
-        weekly_wage       = excluded.weekly_wage,
-        costs_awarded     = excluded.costs_awarded,
-        reinstatement     = excluded.reinstatement,
-        outcome           = excluded.outcome,
-        extraction_method = excluded.extraction_method
+        hhd_amount            = excluded.hhd_amount,
+        lost_wages            = excluded.lost_wages,
+        lost_wages_weeks      = excluded.lost_wages_weeks,
+        weekly_wage           = excluded.weekly_wage,
+        costs_awarded         = excluded.costs_awarded,
+        costs_awarded_text    = excluded.costs_awarded_text,
+        reinstatement         = excluded.reinstatement,
+        outcome               = excluded.outcome,
+        extraction_method     = excluded.extraction_method,
+        decision_date         = excluded.decision_date,
+        employment_tenure     = excluded.employment_tenure,
+        contribution_applied  = excluded.contribution_applied,
+        contribution_reduction= excluded.contribution_reduction,
+        contribution_conduct  = excluded.contribution_conduct,
+        penalties             = excluded.penalties
     `)
     .bind(
       pdfFilename, source,
       data.hhd_amount, data.lost_wages, data.lost_wages_weeks,
       data.weekly_wage, data.costs_awarded,
+      data.costs_awarded_text ?? null,
       data.reinstatement ? 1 : 0,
-      data.outcome, extractionMethod
+      data.outcome, extractionMethod,
+      data.decision_date ?? null,
+      data.employment_tenure ?? null,
+      data.contribution_applied ? 1 : 0,
+      data.contribution_reduction ?? null,
+      data.contribution_conduct ?? null,
+      data.penalties ?? null
     )
     .run();
 }
