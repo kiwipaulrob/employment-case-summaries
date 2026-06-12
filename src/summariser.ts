@@ -290,6 +290,8 @@ export async function summariseCase(
     try {
       let summary = await callOpenRouter(request, apiKey);
 
+      console.log(`LLM response for ${caseData.caseId}: ${summary.slice(0, 200)}...`);
+
       if (summary.includes('SUMMARY_UNAVAILABLE')) {
         return {
           caseId: caseData.caseId,
