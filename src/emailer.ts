@@ -253,15 +253,21 @@ function buildHtml(cases: ProcessedCase[], dateStr: string, unsubscribeUrl: stri
 
 function buildCaseHtml(c: ProcessedCase, isFirst: boolean): string {
   const member = c.member ? decodeHtmlEntities(c.member) : null;
-  const meta = [member, c.datePublished, c.category].filter(Boolean).join(' \u00b7 ');
+  const meta = [c.datePublished, c.category].filter(Boolean).join(' · ');
 
   const summaryHtml = summaryToHtml(c.summary, c.caseUrl, c.pdfUrl);
   const linksHtml = buildLinksHtml(c.source, c.pdfUrl);
 
   const topPadding = isFirst ? '20px' : '16px';
 
+  // Build member sentence if available
+  const memberSentence = member
+    ? `<p class="case-member" style="font-size: 13px; color: #555; font-family: Arial, sans-serif; margin: -4px 0 4px 0;">This case was determined by ${escapeHtml(member)}.</p>`
+    : '';
+
   return `<div class="case-block" style="padding: ${topPadding} 0 40px 0;">
   <p class="case-title">${escapeHtml(toTitleCase(decodeHtmlEntities(c.title)))}</p>
+  ${memberSentence}
   ${meta ? `<p class="case-meta">${escapeHtml(meta)}</p>` : ''}
   ${summaryHtml}
   ${linksHtml}
@@ -320,6 +326,7 @@ function summaryToHtml(summary: string, _caseUrl: string, _pdfUrl: string | null
     'EMPLOYMENT COURT ISSUES RAISED': 'Employment Court Issues Raised',
     'HOW THE EMPLOYMENT COURT ISSUES WERE RESOLVED': 'How the Employment Court Issues Were Resolved',
     'LEGAL ISSUES': 'Legal issues',
+    'EXECUTIVE SUMMARY': 'Executive Summary',
     'HOW THE ISSUES WERE RESOLVED': 'How the issues were resolved',
     'OUTCOME': 'Outcome',
     'REMEDY': 'Remedy',

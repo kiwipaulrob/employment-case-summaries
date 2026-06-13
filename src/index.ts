@@ -1184,10 +1184,14 @@ Rules:
         }
 
         const betterTitle = extractTitleFromSummary(summaryResult.summary, category);
+        
+        // Strip AWARDS_DATA block before storing
+        const { strippedSummary } = parseAwardsBlock(summaryResult.summary);
+        
         const processedCase: ProcessedCase = {
           ...caseListing,
           title: betterTitle || caseListing.title,
-          summary: summaryResult.summary,
+          summary: strippedSummary,
           processedAt: new Date().toISOString(),
           source: 'ERA',
         };
