@@ -432,14 +432,17 @@ export default {
       }
     }
 
-        // POST /admin/clear-lock — Clear stuck processing lock
+    // POST /admin/clear-lock — Clear stuck processing lock
     if (request.method === 'POST' && url.pathname === '/admin/clear-lock') {
       const session = getAdminCookie(request);
       if (session !== env.ADMIN_SECRET) {
         return new Response('Unauthorized', { status: 401 });
       }
       try {
-        await env.DB.prepare("INSERT OR REPLACE INTO config (key, value, updated_at) VALUES ('is_processing', '0', datetime('now'))").run();
+        const now = new Date().toISOString();
+        await env.DB.prepare(
+          "INSERT OR REPLACE INTO config (key, value, updated_at) VALUES ('is_processing', '0', ?)"
+        ).bind(now).run();
         return new Response(JSON.stringify({ success: true, message: 'Processing lock cleared' }), {
           status: 200,
           headers: { 'Content-Type': 'application/json' },

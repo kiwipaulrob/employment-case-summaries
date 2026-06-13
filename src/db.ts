@@ -462,9 +462,10 @@ export async function addSubscriberPending(
  */
 export async function setProcessingLock(db: D1Database, locked: boolean): Promise<void> {
   const value = locked ? '1' : '0';
+  const now = new Date().toISOString(); // ISO 8601: "2026-06-13T01:15:23.000Z"
   await db
-    .prepare(`INSERT OR REPLACE INTO config (key, value, updated_at) VALUES ('is_processing', ?, datetime('now'))`)
-    .bind(value)
+    .prepare(`INSERT OR REPLACE INTO config (key, value, updated_at) VALUES ('is_processing', ?, ?)`)
+    .bind(value, now)
     .run();
 }
 
@@ -482,20 +483,34 @@ export async function isProcessing(db: D1Database): Promise<boolean> {
   
   // If lock is older than 10 minutes, consider it stale and ignore it
   try {
-    const lockTime = new Date(result.updated_at).getTime();
+    // Normalize date string: MySQL format "YYYY-MM-DD HH:MM:SS" → "YYYY-MM-DDTHH:MM:SS"
+    // ISO 8601 "2026-06-13T01:15:23.000Z" passes through unchanged
+    const normalizedDate = result.updated_at.replace(' ', 'T');
+    // Append 'Z' if no timezone suffix (MySQL format has none, so treat as UTC)
+    const dateStr = normalizedDate.endsWith('Z') || /[+-]\d{2}:\d{2}$/.test(normalizedDate)
+      ? normalizedDate
+      : normalizedDate + 'Z';
+    const lockTime = new Date(dateStr).getTime();
+    if (isNaN(lockTime)) {
+      console.warn(`Unparseable lock timestamp: "${result.updated_at}", treating as stale`);
+      await setProcessingLock(db, false); // clear the corrupt lock
+      return false;
+    }
     const now = Date.now();
     const lockAgeMs = now - lockTime;
     const lockTimeoutMs = 10 * 60 * 1000; // 10 minutes
     
     if (lockAgeMs > lockTimeoutMs) {
       console.warn(`Stale processing lock detected (age: ${Math.round(lockAgeMs / 1000)}s), treating as unlocked`);
+      await setProcessingLock(db, false); // clear the stale lock automatically
       return false;
     }
     
     return true;
   } catch (err) {
-    console.warn(`Error checking lock age: ${err}, treating lock as active`);
-    return true;
+    console.warn(`Error checking lock age: ${err}, clearing lock and continuing`);
+    await setProcessingLock(db, false).catch(() => {});
+    return false;
   }
 }
 
