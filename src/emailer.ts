@@ -284,6 +284,14 @@ function buildLinksHtml(source: string, pdfUrl: string | null): string {
 }
 
 /**
+ * Converts `**text**` markdown bold markers to HTML `<strong>` tags.
+ * Applied after HTML escaping so special chars are already safe.
+ */
+function convertBold(text: string): string {
+  return text.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+}
+
+/**
  * Converts the LLM's plain-text structured summary into styled HTML.
  */
 function summaryToHtml(summary: string, _caseUrl: string, _pdfUrl: string | null): string {
@@ -293,6 +301,15 @@ function summaryToHtml(summary: string, _caseUrl: string, _pdfUrl: string | null
   ) {
     return `<p style="color: #c00;">${escapeHtml(summary)}</p>`;
   }
+
+  // Strip the DOCUMENT TYPE FLAG section entirely
+  let cleaned = summary;
+  const dtfMatch = cleaned.match(/^DOCUMENT TYPE FLAG\s*\n(\[.*?\](?:\s*:.*?)?\s*\n?)/m);
+  if (dtfMatch) {
+    cleaned = cleaned.replace(/^DOCUMENT TYPE FLAG\s*\n(\[.*?\](?:\s*:.*?)?\s*\n?)/m, '');
+  }
+  // Also handle inline format where the flag content is on the same line or next line without brackets
+  cleaned = cleaned.replace(/^DOCUMENT TYPE FLAG.*(?:\n\[.*?\].*)?$/m, '').trim();
 
   const SECTION_LABEL_MAP: Record<string, string> = {
     'JUDGE & DATE': 'Judge & Date',
@@ -310,7 +327,7 @@ function summaryToHtml(summary: string, _caseUrl: string, _pdfUrl: string | null
 
   const SECTION_LABELS = Object.keys(SECTION_LABEL_MAP);
 
-  const lines = summary.split('\n');
+  const lines = cleaned.split('\n');
   const parts: string[] = [];
   let currentLabel = '';
   let currentLines: string[] = [];
@@ -332,7 +349,8 @@ function summaryToHtml(summary: string, _caseUrl: string, _pdfUrl: string | null
         const listHtml = items.map((i) => {
           const escaped = escapeHtml(i);
           const italicized = italicizeCaseCitations(escaped);
-          return `<li>${italicized}</li>`;
+          const bolded = convertBold(italicized);
+          return `<li>${bolded}</li>`;
         }).join('\n');
         parts.push(`<div class="section-body"><ol>${listHtml}</ol></div>`);
       } else {
@@ -344,7 +362,8 @@ function summaryToHtml(summary: string, _caseUrl: string, _pdfUrl: string | null
           .map((p) => {
             const escaped = escapeHtml(p).replace(/\n/g, '<br>');
             const italicized = italicizeCaseCitations(escaped);
-            return `<p style="margin: 6px 0;">${italicized}</p>`;
+            const bolded = convertBold(italicized);
+            return `<p style="margin: 6px 0;">${bolded}</p>`;
           })
           .join('');
         parts.push(`<div class="section-body">${paraHtml}</div>`);
@@ -357,7 +376,7 @@ function summaryToHtml(summary: string, _caseUrl: string, _pdfUrl: string | null
   for (const line of lines) {
     const trimmed = line.trim();
     const matchedLabel = SECTION_LABELS.find(
-      (l) => trimmed === l || trimmed.startsWith(l + ':')
+      (l) => trimmed === l || trimmed.startsWith(l + ':') || trimmed.startsWith(l + ' ')
     );
 
     if (matchedLabel) {

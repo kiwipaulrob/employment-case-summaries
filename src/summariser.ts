@@ -61,18 +61,10 @@ HOW THE ISSUES WERE RESOLVED
 OUTCOME
 [One sentence stating the overall result — e.g. "The claim was upheld in full / dismissed / partially upheld (X issue upheld, Y issue dismissed)."]
 
-REMEDY (if applicable)
+|REMEDY
 [Itemise all remedies ordered: e.g. "Compensation: $X,XXX (lost wages); $X,XXX (personal grievance); Interest: $ X,XXX; Reinstatement: [Y/N]; Reimbursement of costs: $X,XXX; Other conditions: [describe]." If no remedy was ordered, write "None ordered." If the determination is provisional, interim, conditional, or subject to later hearing, note this explicitly.]
 
 ---FORMAT END---
-
-DOCUMENT TYPE FLAG
-Before the PARTIES section, check the document title and determine whether this is:
-- [FINAL DETERMINATION] A substantive determination on the merits (normal case).
-- [CONSENT ORDER] A written consent order, agreed settlement, or withdrawal (not determined on merits).
-- [INTERIM/INTERLOCUTORY] An interim order, strike-out decision, or application decision (not final).
-- [COSTS ORDER] A costs or interest determination separate from the main claim.
-If it is NOT a [FINAL DETERMINATION], flag this at the very top, e.g.: [INTERIM/INTERLOCUTORY: This decision relates to an application for interim relief, not the merits.]
 
 COMPLETENESS CHECK
 Before submitting your response, verify:
