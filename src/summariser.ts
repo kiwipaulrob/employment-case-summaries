@@ -76,7 +76,6 @@ Before submitting your response, verify:
 6. The REMEDY section itemises all compensation types, amounts, conditions, interim/final status, or notes "None ordered."
 7. No issue, fact, or legal holding from the determination is omitted.
 8. ANTI-HALLUCINATION CHECK: For the REPRESENTATIVES section, verify that every name and title is explicitly stated in the document. If a party had "No appearance", write exactly "No appearance". Do not invent names or speculate about representation that is not clearly stated.
-If you cannot achieve this due to poor document quality or if you cannot identify all issues, respond only with: SUMMARY_UNAVAILABLE
 
 Additional instructions:
 - Use plain, accessible English. Do not assume the reader is a lawyer.
@@ -84,7 +83,6 @@ Additional instructions:
 - CRITICAL: Never invent or hallucinate information. If a detail is not in the document, do not guess — write "Not provided" or leave it blank. This applies especially to representative names, party details, and legal authorities.
 - Keep the total summary to approximately 500–800 words (longer is acceptable if necessary for completeness).
 - Prioritise completeness over brevity. Include all material issues and resolutions.
-- If you cannot access or read the document, respond only with: SUMMARY_UNAVAILABLE
 
 AWARDS DATA EXTRACTION (append this block at the very end of your response, after the REMEDY section)
 After you finish the REMEDY section, output the following structured block verbatim — it is stripped before display and used only for analytics. Use "nil" for any field that is not awarded, not stated, or not applicable.
