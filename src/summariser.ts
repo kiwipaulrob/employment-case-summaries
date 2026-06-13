@@ -83,6 +83,7 @@ Additional instructions:
 - CRITICAL: Never invent or hallucinate information. If a detail is not in the document, do not guess — write "Not provided" or leave it blank. This applies especially to representative names, party details, and legal authorities.
 - Keep the total summary to approximately 500–800 words (longer is acceptable if necessary for completeness).
 - Prioritise completeness over brevity. Include all material issues and resolutions.
+- The determination text may contain formatting artifacts from PDF extraction. Do your best to extract meaningful content — ignore garbled characters, page numbers, headers, footers, and other visual artifacts that don't affect meaning.
 
 AWARDS DATA EXTRACTION (append this block at the very end of your response, after the REMEDY section)
 After you finish the REMEDY section, output the following structured block verbatim — it is stripped before display and used only for analytics. Use "nil" for any field that is not awarded, not stated, or not applicable.

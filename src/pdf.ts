@@ -123,15 +123,7 @@ export async function getPdfContent(
   pdfUrl: string,
   usePdfUrlPassthrough: boolean
 ): Promise<PdfContent> {
-  // Always try base64 first so Claude can read PDFs natively (better quality)
-  try {
-    return await fetchPdfAsBase64(pdfUrl);
-  } catch (err) {
-    console.warn(
-      `Strategy A (base64) failed for ${pdfUrl}: ${err}. Falling back to Strategy B.`
-    );
-    return await fetchPdfAsText(pdfUrl);
-  }
+  return await fetchPdfAsText(pdfUrl);
 }
 
 /**
