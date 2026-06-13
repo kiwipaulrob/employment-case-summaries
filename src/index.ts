@@ -59,6 +59,7 @@ import {
 import { getDashboardHtml } from './dashboard';
 import { isValidEmail, parseAwardsBlock, timingSafeEqual } from './utils';
 import { checkRateLimit, getClientIp } from './rate-limiter';
+import { DIAGNOSTICS_TESTS, type DiagnosticsReport } from './diagnostics';
 
 // ─── Cookie helpers ───────────────────────────────────────────────────────────
 
@@ -287,6 +288,14 @@ export default {
       return new Response('', {
         status: 302,
         headers: { Location: '/admin', 'Set-Cookie': clearAdminCookie() },
+      });
+    }
+
+    // GET /admin/logoff — Redirect to /admin/logout (common misspelling)
+    if (request.method === 'GET' && url.pathname === '/admin/logoff') {
+      return new Response('', {
+        status: 302,
+        headers: { Location: '/admin/logout' },
       });
     }
 
@@ -1447,6 +1456,41 @@ Rules:
       }
     }
 
+    // GET /admin/diagnostics — Run diagnostic tests
+    if (request.method === 'GET' && url.pathname === '/admin/diagnostics') {
+      try {
+        const testName = url.searchParams.get('test') ?? 'all';
+        const results: DiagnosticsReport[] = [];
+
+        if (testName === 'all') {
+          for (const [name, test] of Object.entries(DIAGNOSTICS_TESTS)) {
+            const report = await test.run(env, request);
+            results.push(report);
+          }
+        } else if (DIAGNOSTICS_TESTS[testName]) {
+          const report = await DIAGNOSTICS_TESTS[testName].run(env, request);
+          results.push(report);
+        } else {
+          return jsonResponse({
+            error: `Unknown test "${testName}". Available: ${Object.keys(DIAGNOSTICS_TESTS).join(', ')}`,
+            available_tests: Object.keys(DIAGNOSTICS_TESTS),
+          }, 400);
+        }
+
+        // Compute overall summary
+        const overall = { pass: 0, fail: 0, warn: 0 };
+        for (const r of results) {
+          overall.pass += r.summary.pass;
+          overall.fail += r.summary.fail;
+          overall.warn += r.summary.warn;
+        }
+
+        return jsonResponse({ tests: results, summary: overall });
+      } catch (err) {
+        return jsonResponse({ error: String(err) }, 500);
+      }
+    }
+
     // GET /admin/test-llm
     if (request.method === 'GET' && url.pathname === '/admin/test-llm') {
       try {
@@ -1556,7 +1600,14 @@ async function runDigest(env: Env, force = false, limit = 3): Promise<RunResult>
           success = summaryResult.success;
           if (!success) result.failed++;
         } catch (err) {
-          console.error(`Pipeline failed for ${c.caseId}: ${err}`);
+          const errMsg = `Pipeline failed for ${c.caseId}: ${err}`;
+          console.error(errMsg);
+          // Also log to config table for admin dashboard visibility
+          try {
+            await env.DB.prepare(
+              `INSERT OR REPLACE INTO config (key, value, updated_at) VALUES ('last_error', ?, datetime('now'))`
+            ).bind(errMsg.substring(0, 500)).run();
+          } catch (_) {}
           summary = `Summary unavailable — an error occurred. [View determination](${c.caseUrl})`;
           result.failed++;
           success = false;

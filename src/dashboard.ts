@@ -12,31 +12,7 @@ export function getDashboardHtml(status: {
   total_cases: number;
   era_cases: number;
   ec_cases: number;
-  email_notice?: string | null;
-  cron_schedule: string;
-  timezone: string;
 }): string {
-  // Server-side relative time formatter
-  function relativeTime(iso: string | null): string {
-    if (!iso) return 'Never';
-    const now = Date.now();
-    const then = new Date(iso).getTime();
-    const diffMs = now - then;
-    if (diffMs < 0) return 'Just now';
-    const seconds = Math.floor(diffMs / 1000);
-    if (seconds < 60) return 'Just now';
-    const minutes = Math.floor(seconds / 60);
-    if (minutes < 60) return `${minutes}m ago`;
-    const hours = Math.floor(minutes / 60);
-    if (hours < 24) return `${hours}h ago`;
-    const days = Math.floor(hours / 24);
-    if (days === 1) return 'Yesterday';
-    if (days < 7) return `${days}d ago`;
-    const weeks = Math.floor(days / 7);
-    if (weeks < 4) return `${weeks}w ago`;
-    // Older: show date
-    return new Date(iso).toLocaleDateString('en-NZ', { day: 'numeric', month: 'short', year: 'numeric' });
-  }
   const subscriberRows = (status.subscribers || []).map(sub => `
     <div class="subscriber-row">
       <div class="subscriber-info">
@@ -319,13 +295,12 @@ export function getDashboardHtml(status: {
   <div class="container">
     <div class="tabs">
       <button class="tab-btn active" type="button" onclick="switchTab(event, 'digest')">Digest Controls</button>
-      <button class="tab-btn" type="button" onclick="switchTab(event, 'era-upload')">ERA Upload</button>
       <button class="tab-btn" type="button" onclick="switchTab(event, 'ec-upload')">EC Case Upload</button>
       <button class="tab-btn" type="button" onclick="switchTab(event, 'subscribers')">Subscribers</button>
       <button class="tab-btn" type="button" onclick="switchTab(event, 'analytics')">Analytics</button>
       <button class="tab-btn" type="button" onclick="switchTab(event, 'prompts')">Prompts</button>
       <button class="tab-btn" type="button" onclick="switchTab(event, 'rescan')">Rescan</button>
-      <button class="tab-btn" type="button" onclick="switchTab(event, 'awards')">Awards</button>
+      <button class="tab-btn" type="button" onclick="switchTab(event, 'diagnostics')">Diagnostics</button>
     </div>
 
     <!-- Digest Controls Tab -->
@@ -335,7 +310,7 @@ export function getDashboardHtml(status: {
         <div class="stats-grid">
           <div class="stat-item">
             <div class="stat-label">Last Run</div>
-            <div class="stat-value">${relativeTime(status.last_run_at)}</div>
+            <div class="stat-value">${status.last_run_at ? new Date(status.last_run_at).toLocaleString() : 'Never'}</div>
           </div>
           <div class="stat-item">
             <div class="stat-label">Total Cases</div>
@@ -344,14 +319,6 @@ export function getDashboardHtml(status: {
           <div class="stat-item">
             <div class="stat-label">Active Subscribers</div>
             <div class="stat-value">${status.active_subscribers}/${status.total_subscribers}</div>
-          </div>
-          <div class="stat-item">
-            <div class="stat-label">Digest Schedule</div>
-            <div class="stat-value">${status.cron_schedule}</div>
-          </div>
-          <div class="stat-item">
-            <div class="stat-label">Timezone</div>
-            <div class="stat-value">${status.timezone}</div>
           </div>
         </div>
 
@@ -367,22 +334,6 @@ export function getDashboardHtml(status: {
             </button>
           </form>
         </div>
-      </div>
-
-      <!-- Email Notice Banner Card -->
-      <div class="card">
-        <div class="card-title">Email Notice Banner</div>
-        <p style="color: #666; margin-bottom: 1rem;">
-          Set a one-shot notice that appears at the top of the next digest email. The notice is automatically cleared after the email is sent.
-        </p>
-        <div style="margin-bottom: 0.75rem;">
-          <textarea id="notice-text" rows="3" style="width: 100%; padding: 0.6rem; border: 1px solid #ccc; border-radius: 6px; font-family: inherit; font-size: 0.9rem;" placeholder="e.g. Updated summaries for recently rescanned cases (new prompt applied).">${escapeHtml(status.email_notice || '')}</textarea>
-        </div>
-        <div style="display: flex; gap: 0.75rem;">
-          <button type="button" class="button" onclick="saveNotice()">Save Notice</button>
-          ${status.email_notice ? '<button type="button" class="button" style="background: #999;" onclick="clearNotice()">Clear Notice</button>' : ''}
-        </div>
-        <div id="notice-status" style="margin-top: 1rem;"></div>
       </div>
 
       <div class="card">
@@ -415,35 +366,6 @@ export function getDashboardHtml(status: {
       </div>
     </div>
 
-    <!-- ERA Upload Tab -->
-    <div id="era-upload" class="tab-content">
-      <div class="card">
-        <div class="card-title">Upload ERA Case by URL</div>
-        <p style="color: #666; margin-bottom: 1.5rem;">
-          Process a single ERA determination by pasting its PDF URL. Use this for cases that have dropped off the ERA recent listing page (&gt;10 days old).<br>
-          <small>Example: <code>https://determinations.era.govt.nz/assets/elawpdf/2026/2026-NZERA-225.pdf</code></small>
-        </p>
-        <div class="form-group">
-          <label for="era-pdf-url">ERA PDF URL</label>
-          <input type="url" id="era-pdf-url" placeholder="https://determinations.era.govt.nz/assets/elawpdf/YYYY/YYYY-NZERA-NNN.pdf" style="font-family: monospace; font-size: 0.9rem;">
-        </div>
-        <button type="button" class="button" id="btn-era-url" onclick="withLoading('btn-era-url', uploadEraUrl)">Process Case</button>
-        <div id="era-url-status" style="margin-top: 1.5rem;"></div>
-      </div>
-
-      <div class="card" style="margin-top: 1.5rem;">
-        <div class="card-title">ERA Multi-Page Backfill</div>
-        <p style="color: #666; margin-bottom: 1.5rem;">Scrape the ERA recent listing across multiple pages and process any new cases. Each page shows ~10 cases. Use this after a missed cron run.</p>
-        <div class="form-group">
-          <label for="era-backfill-pages">Number of pages to scrape</label>
-          <input type="number" id="era-backfill-pages" min="1" max="5" value="3">
-          <small>1 page = ~10 most recent cases. 3 pages = ~30 cases (last 10–15 days). Max 5.</small>
-        </div>
-        <button type="button" class="button" id="btn-backfill" onclick="withLoading('btn-backfill', runEraBackfill)">Scrape &amp; Process</button>
-        <div id="era-backfill-status" style="margin-top: 1.5rem;"></div>
-      </div>
-    </div>
-
     <!-- EC Case Upload Tab -->
     <div id="ec-upload" class="tab-content">
       <div class="card">
@@ -454,7 +376,7 @@ export function getDashboardHtml(status: {
             <div class="dropzone" id="dropzone" ondragover="dragOver(event)" ondragleave="dragLeave(event)" ondrop="drop(event)">
               <p>📄 Drag and drop your PDF here</p>
               <p style="font-size: 0.9rem; color: #999;">or click to browse</p>
-              <input type="file" id="pdf-input" name="file" accept=".pdf" style="display:none;" onchange="fileSelected()">
+              <input type="file" id="pdf-input" name="file" accept=".pdf" multiple style="display:none;" onchange="fileSelected()">
             </div>
             <small style="display: block; margin-top: 0.5rem;">Selected: <span id="file-name">None</span></small>
             <small style="display: block; margin-top: 0.25rem; color: #888;">PDF URL is auto-derived from the filename (employmentcourt.govt.nz/assets/Documents/Decisions/…)</small>
@@ -503,40 +425,38 @@ export function getDashboardHtml(status: {
     <div id="prompts" class="tab-content">
       <div class="card">
         <div class="card-title">LLM System Prompts</div>
-        <p style="color: #666; margin-bottom: 1.5rem;">Edit the prompts used by the LLM. Changes take effect immediately — no redeploy needed. The current value is always saved to version history before overwriting, so you can revert to any of the last 10 versions.</p>
-
+        <p style="color: #666; margin-bottom: 1.5rem;">Edit the system prompts used by the LLM for summarization. Changes take effect immediately on the next case processed.</p>
+        
         <form id="prompts-form">
-          <!-- ERA prompt -->
           <div class="form-group">
             <label for="prompt-era"><strong>ERA Determinations Prompt</strong></label>
             <textarea id="prompt-era" name="prompt_era" style="min-height: 300px; font-family: monospace; font-size: 0.9rem; padding: 0.75rem; border: 1px solid #ddd; border-radius: 4px; width: 100%; box-sizing: border-box;"></textarea>
-          </div>
-
-          <!-- ERA version history -->
-          <div style="margin-top: 0.75rem;">
-            <button type="button" onclick="toggleVersionHistory('era')"
-              style="background: none; border: none; color: #4f6f52; cursor: pointer; font-size: 0.85rem; padding: 0; text-decoration: underline;">
-              📜 Show version history (last 10)
-            </button>
-            <div id="era-versions-panel" style="display: none; margin-top: 0.5rem; border: 1px solid #e0e0e0; border-radius: 4px; overflow: hidden;">
-              <div id="era-versions-list" style="padding: 0.5rem; font-size: 0.85rem; color: #555;">Loading…</div>
+            <div style="margin-top: 0.5rem; padding: 1rem; background: #f0f5f2; border-left: 4px solid #4f6f52; border-radius: 4px;">
+              <strong>📋 Prompt Structure Reference</strong>
+              <p style="margin: 0.5rem 0 0 0; font-size: 13px; color: #555;">This shows the expected section format the LLM should output. Your prompt should instruct the model to produce summaries in this structure.</p>
+              <ul style="margin: 0.5rem 0 0 0; padding-left: 1.5rem;">
+                <li>PARTIES, REPRESENTATIVES, FACTS, LEGAL ISSUES, HOW THE ISSUES WERE RESOLVED, OUTCOME, REMEDY</li>
+                <li>Numbered lists for issues and resolutions (1., 2., 3.)</li>
+                <li>Include status flags per issue: (Established), (Dismissed), (Not reached)</li>
+                <li>Anti-hallucination rule: representative names must be exact from document</li>
+                <li>Completeness check before submitting: verify all issues captured</li>
+              </ul>
             </div>
           </div>
 
-          <!-- EC prompt -->
           <div class="form-group" style="margin-top: 2rem;">
             <label for="prompt-ec"><strong>Employment Court Judgments Prompt</strong></label>
             <textarea id="prompt-ec" name="prompt_ec" style="min-height: 300px; font-family: monospace; font-size: 0.9rem; padding: 0.75rem; border: 1px solid #ddd; border-radius: 4px; width: 100%; box-sizing: border-box;"></textarea>
-          </div>
-
-          <!-- EC version history -->
-          <div style="margin-top: 0.75rem;">
-            <button type="button" onclick="toggleVersionHistory('ec')"
-              style="background: none; border: none; color: #4f6f52; cursor: pointer; font-size: 0.85rem; padding: 0; text-decoration: underline;">
-              📜 Show version history (last 10)
-            </button>
-            <div id="ec-versions-panel" style="display: none; margin-top: 0.5rem; border: 1px solid #e0e0e0; border-radius: 4px; overflow: hidden;">
-              <div id="ec-versions-list" style="padding: 0.5rem; font-size: 0.85rem; color: #555;">Loading…</div>
+            <div style="margin-top: 0.5rem; padding: 1rem; background: #f0f5f2; border-left: 4px solid #4f6f52; border-radius: 4px;">
+              <strong>📋 Prompt Structure Reference</strong>
+              <p style="margin: 0.5rem 0 0 0; font-size: 13px; color: #555;">This shows the expected section format the LLM should output. Your prompt should instruct the model to produce summaries in this structure.</p>
+              <ul style="margin: 0.5rem 0 0 0; padding-left: 1.5rem;">
+                <li>JUDGE & DATE, PARTIES, REPRESENTATIVES, FACTS, ERA FINDINGS, EMPLOYMENT COURT ISSUES RAISED, HOW THE EMPLOYMENT COURT ISSUES WERE RESOLVED, OUTCOME & REMEDY</li>
+                <li>Do NOT include [JUDGMENT ON APPEAL] or similar flags</li>
+                <li>No preamble text before structured output</li>
+                <li>Start immediately with JUDGE & DATE</li>
+                <li>Include status flags per issue: (Upheld in appeal), (Dismissed on appeal), (Not reached)</li>
+              </ul>
             </div>
           </div>
 
@@ -560,8 +480,8 @@ export function getDashboardHtml(status: {
           </div>
 
           <div style="display: flex; gap: 1rem; margin-top: 1.5rem;">
-            <button type="button" class="button" id="btn-rescan-silent" onclick="if(confirm('Delete the most recent cases and rescan them? This cannot be undone.')) withLoading('btn-rescan-silent', rescanSilently)">Rescan Silently</button>
-            <button type="button" class="button" id="btn-rescan-send" onclick="if(confirm('Delete + rescan and send a digest email with the updated summaries? This will email all active subscribers.')) withLoading('btn-rescan-send', rescanAndSendEmail)">Rescan & Send Email</button>
+            <button type="button" class="button" onclick="rescanSilently()">Rescan Silently</button>
+            <button type="button" class="button" onclick="rescanAndSendEmail()">Rescan & Send Email</button>
           </div>
 
           <div id="rescan-status"></div>
@@ -569,46 +489,97 @@ export function getDashboardHtml(status: {
       </div>
     </div>
 
-    <!-- Awards Tab -->
-    <div id="awards" class="tab-content">
+    <!-- Diagnostics Tab -->
+    <div id="diagnostics" class="tab-content">
       <div class="card">
-        <div class="card-title">Awards Data Extraction</div>
-        <p style="color: #666; margin-bottom: 1.5rem;">
-          Extract structured remedy data (HHD, lost wages, weekly wage, costs, outcome) from existing ERA summaries.
-          New cases processed via the pipeline will have awards data extracted automatically.
-          Use this to backfill historical cases.
-        </p>
+        <div class="card-title">System Diagnostics</div>
+        <p style="color: #666; margin-bottom: 1.5rem;">Run targeted tests to isolate which layer of the summarisation pipeline is failing.</p>
 
-        <div class="form-group">
-          <label for="awards-limit">Max cases to process per run</label>
-          <input type="number" id="awards-limit" min="1" max="200" value="50">
-          <small>Only cases without existing awards data will be processed. Safe to run multiple times.</small>
+        <div style="display: flex; flex-direction: column; gap: 1rem;">
+
+          <div style="border: 1px solid #e0e0e0; border-radius: 8px; padding: 1rem;">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+              <div>
+                <strong>🟢 Cloudflare Environment</strong>
+                <div style="font-size: 12px; color: #666;">Worker readiness, D1 connectivity, env vars</div>
+              </div>
+              <button class="button" onclick="runDiag('ping')" id="diag-ping-btn">Run</button>
+            </div>
+            <div id="diag-ping-result" style="margin-top: 0.5rem; font-size: 13px;"></div>
+          </div>
+
+          <div style="border: 1px solid #e0e0e0; border-radius: 8px; padding: 1rem;">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+              <div>
+                <strong>🔵 OpenRouter Connectivity</strong>
+                <div style="font-size: 12px; color: #666;">Network reach, auth validity, model availability</div>
+              </div>
+              <button class="button" onclick="runDiag('openrouter-connectivity')" id="diag-openrouter-btn">Run</button>
+            </div>
+            <div id="diag-openrouter-result" style="margin-top: 0.5rem; font-size: 13px;"></div>
+          </div>
+
+          <div style="border: 1px solid #e0e0e0; border-radius: 8px; padding: 1rem;">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+              <div>
+                <strong>🟡 Full Summary Test</strong>
+                <div style="font-size: 12px; color: #666;">End-to-end summary on a known good ERA PDF</div>
+              </div>
+              <button class="button" onclick="runDiag('openrouter-summary')" id="diag-summary-btn">Run</button>
+            </div>
+            <div id="diag-summary-result" style="margin-top: 0.5rem; font-size: 13px;"></div>
+          </div>
+
+          <div style="border: 1px solid #e0e0e0; border-radius: 8px; padding: 1rem;">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+              <div>
+                <strong>🟣 PDF Extraction</strong>
+                <div style="font-size: 12px; color: #666;">Test text extraction from ERA PDFs</div>
+              </div>
+              <button class="button" onclick="runDiag('pdf-extraction')" id="diag-pdf-btn">Run</button>
+            </div>
+            <div id="diag-pdf-result" style="margin-top: 0.5rem; font-size: 13px;"></div>
+          </div>
+
+          <div style="border: 1px solid #e0e0e0; border-radius: 8px; padding: 1rem;">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+              <div>
+                <strong>🟠 Time Budget Breakdown</strong>
+                <div style="font-size: 12px; color: #666;">Time each pipeline stage separately</div>
+              </div>
+              <button class="button" onclick="runDiag('time-budget')" id="diag-time-btn">Run</button>
+            </div>
+            <div id="diag-time-result" style="margin-top: 0.5rem; font-size: 13px;"></div>
+          </div>
+
+          <div style="border: 1px solid #e0e0e0; border-radius: 8px; padding: 1rem;">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+              <div>
+                <strong>🔴 End-to-End Single Case</strong>
+                <div style="font-size: 12px; color: #666;">Full pipeline: scrape → PDF → LLM → store</div>
+              </div>
+              <button class="button" onclick="runDiag('end-to-end')" id="diag-e2e-btn">Run</button>
+            </div>
+            <div id="diag-e2e-result" style="margin-top: 0.5rem; font-size: 13px;"></div>
+          </div>
+
+          <div style="border: 2px solid #4f6f52; border-radius: 8px; padding: 1rem; background: #f6f9f6;">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+              <div>
+                <strong>▶ Run All Tests</strong>
+                <div style="font-size: 12px; color: #666;">Run every diagnostic in sequence (may take 2+ minutes)</div>
+              </div>
+              <button class="button" style="background: #4f6f52; color: white;" onclick="runDiag('all')" id="diag-all-btn">Run All</button>
+            </div>
+            <div id="diag-all-result" style="margin-top: 0.5rem; font-size: 13px;"></div>
+          </div>
+
         </div>
-
-        <div style="display: flex; gap: 1rem; margin-top: 1.5rem;">
-          <button type="button" class="button" id="btn-awards" onclick="withLoading('btn-awards', backfillAwards)">Extract Awards from All Cases</button>
-          <a href="/awards" target="_blank" class="button" style="background:#fff;color:#333;border:1px solid #ccc;text-decoration:none;">View Public Awards Page ↗</a>
-        </div>
-
-        <div id="awards-status" style="margin-top: 1.5rem;"></div>
       </div>
     </div>
   </div>
 
   <script>
-    // Loading spinner helper — disables a button, shows spinner, runs callback
-    function withLoading(buttonId, fn) {
-      const btn = typeof buttonId === 'string' ? document.getElementById(buttonId) : buttonId;
-      if (!btn) return fn();
-      const originalHTML = btn.innerHTML;
-      btn.disabled = true;
-      btn.innerHTML = '<span class="spinner" style="vertical-align:middle;"></span> Processing…';
-      return Promise.resolve(fn()).finally(() => {
-        btn.disabled = false;
-        btn.innerHTML = originalHTML;
-      });
-    }
-
     function switchTab(event, tabName) {
       event.preventDefault();
       document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
@@ -641,7 +612,9 @@ export function getDashboardHtml(status: {
       const input = document.getElementById('pdf-input');
       const fileName = document.getElementById('file-name');
       if (input.files.length > 0) {
-        fileName.textContent = input.files[0].name;
+        fileName.textContent = input.files.length === 1
+          ? input.files[0].name
+          : input.files.length + ' files selected';
       } else {
         fileName.textContent = 'None';
       }
@@ -662,56 +635,69 @@ export function getDashboardHtml(status: {
         return;
       }
 
-      const file = fileInput.files[0];
-      const filename = file.name;
+      const totalFiles = fileInput.files.length;
+      for (let f = 0; f < totalFiles; f++) {
+        const file = fileInput.files[f];
+        const filename = file.name;
+        let lastError = null;
       
-      try {
-        status.className = 'upload-status show alert alert-info';
-        status.textContent = '⏳ Reading PDF and extracting text...';
+        try {
+          status.className = 'upload-status show alert alert-info';
+          status.textContent = '⏳ [' + (f+1) + '/' + totalFiles + '] Reading ' + filename + '...';
 
-        // Read file as ArrayBuffer
-        const arrayBuffer = await new Promise((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onload = () => resolve(reader.result);
-          reader.onerror = reject;
-          reader.readAsArrayBuffer(file);
-        });
+          // Read file as ArrayBuffer
+          const arrayBuffer = await new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(reader.result);
+            reader.onerror = reject;
+            reader.readAsArrayBuffer(file);
+          });
 
-        // Determine endpoint based on file type
-        // For now, always use the text-based endpoint with pdfminer extraction
-        const url = new URL('/admin/upload-ec-case', window.location.origin);
-        url.searchParams.set('filename', filename);
+          // Determine endpoint based on file type
+          const url = new URL('/admin/upload-ec-case', window.location.origin);
+          url.searchParams.set('filename', filename);
 
-        status.textContent = '⏳ Uploading and summarising...';
+          status.textContent = '⏳ [' + (f+1) + '/' + totalFiles + '] Summarising ' + filename + '...';
 
-        const response = await fetch(url.toString(), {
-          method: 'POST',
-          body: arrayBuffer,
-          headers: {
-            'Content-Type': 'application/pdf',
-          },
-          credentials: 'same-origin'
-        });
+          const response = await fetch(url.toString(), {
+            method: 'POST',
+            body: arrayBuffer,
+            headers: {
+              'Content-Type': 'application/pdf',
+            },
+            credentials: 'same-origin'
+          });
 
-        if (!response.ok) {
-          const error = await response.text();
-          throw new Error(error || 'Upload failed');
+          if (!response.ok) {
+            const error = await response.text();
+            throw new Error(error || 'Upload failed');
+          }
+
+          const result = await response.json();
+          if (f === totalFiles - 1) {
+            status.className = 'upload-status show alert alert-success';
+            status.innerHTML = '<strong>✓ ' + (totalFiles > 1 ? filename : 'Case') + ' uploaded successfully!</strong><br>The case has been summarised and stored in the database.';
+          }
+          
+          if (totalFiles > 1) {
+            status.className = 'upload-status show alert alert-info';
+          }
+        } catch (err) {
+          lastError = err;
+          status.className = 'upload-status show alert alert-error';
+          status.textContent = '❌ [' + (f+1) + '/' + totalFiles + '] ' + filename + ': ' + err.message;
         }
-
-        const result = await response.json();
-        status.className = 'upload-status show alert alert-success';
-        status.innerHTML = '<strong>✓ Case uploaded successfully!</strong><br>The case has been summarised and stored in the database.';
         
-        // Reset form
-        e.target.reset();
-        document.getElementById('file-name').textContent = 'None';
-        
-        setTimeout(() => {
-          status.classList.remove('show');
-        }, 5000);
-      } catch (err) {
-        status.className = 'upload-status show alert alert-error';
-        status.textContent = '❌ Error: ' + err.message;
+        // Final status after all files
+        if (f === totalFiles - 1) {
+          if (lastError) {
+            status.className = 'upload-status show alert alert-error';
+            status.textContent = '❌ Error: ' + lastError.message;
+          } else if (totalFiles > 1) {
+            status.className = 'upload-status show alert alert-success';
+            status.innerHTML = '<strong>✓ All ' + totalFiles + ' cases uploaded successfully!</strong>';
+          }
+        }
       }
     });
 
@@ -762,90 +748,6 @@ export function getDashboardHtml(status: {
       }
     }
 
-    // Toggle a version history panel; load versions on first open
-    function toggleVersionHistory(type) {
-      const panel = document.getElementById(type + '-versions-panel');
-      const isHidden = panel.style.display === 'none';
-      panel.style.display = isHidden ? 'block' : 'none';
-      if (isHidden) loadPromptVersions(type === 'era' ? 'prompt_era' : 'prompt_ec');
-    }
-
-    // Fetch and render version history for a prompt key
-    async function loadPromptVersions(key) {
-      const listId = key === 'prompt_era' ? 'era-versions-list' : 'ec-versions-list';
-      const listEl = document.getElementById(listId);
-      listEl.innerHTML = 'Loading…';
-      try {
-        const response = await fetch('/admin/dashboard/prompt-versions?key=' + key, {
-          credentials: 'same-origin'
-        });
-        if (!response.ok) throw new Error('Failed to load versions');
-        const data = await response.json();
-        if (!data.versions || data.versions.length === 0) {
-          listEl.innerHTML = '<div style="padding: 0.5rem; color: #888;"><em>No previous versions saved yet.</em></div>';
-          return;
-        }
-        listEl.innerHTML = data.versions.map(v => {
-          const ts = relativeTime(v.saved_at);
-          return '<div style="display: flex; justify-content: space-between; align-items: center; padding: 0.5rem 0.75rem; border-bottom: 1px solid #f0f0f0;">'
-            + '<div style="flex: 1; min-width: 0;">'
-            + '<span style="color: #333; font-weight: 500;">' + ts + '</span>'
-            + '<span style="color: #999; margin-left: 0.75rem; font-size: 0.82rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 320px; display: inline-block; vertical-align: middle;">'
-            + escHtml(v.preview) + '</span>'
-            + '</div>'
-            + '<button data-key="' + key + '" data-id="' + v.id + '" onclick="revertPrompt(this.dataset.key, this.dataset.id)" '
-            + 'style="flex-shrink: 0; margin-left: 0.75rem; font-size: 0.8rem; padding: 0.25rem 0.7rem; background: #4f6f52; color: white; border: none; border-radius: 4px; cursor: pointer;">Revert</button>'
-            + '</div>';
-        }).join('');
-      } catch (err) {
-        listEl.innerHTML = '<div style="padding: 0.5rem; color: #c0392b;">Error loading versions: ' + err.message + '</div>';
-      }
-    }
-
-    // Escape HTML entities for safe rendering
-    function escHtml(str) {
-      return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-    }
-
-    // Format an ISO timestamp as a relative time string (client-side)
-    function relativeTime(iso) {
-      if (!iso) return 'Never';
-      const diffMs = Date.now() - new Date(iso).getTime();
-      if (diffMs < 0) return 'Just now';
-      const seconds = Math.floor(diffMs / 1000);
-      if (seconds < 60) return 'Just now';
-      const minutes = Math.floor(seconds / 60);
-      if (minutes < 60) return minutes + 'm ago';
-      const hours = Math.floor(minutes / 60);
-      if (hours < 24) return hours + 'h ago';
-      const days = Math.floor(hours / 24);
-      if (days === 1) return 'Yesterday';
-      if (days < 7) return days + 'd ago';
-      const weeks = Math.floor(days / 7);
-      if (weeks < 4) return weeks + 'w ago';
-      return new Date(iso).toLocaleDateString('en-NZ', { day: 'numeric', month: 'short', year: 'numeric' });
-    }
-
-    // Revert a prompt to a saved version
-    async function revertPrompt(key, versionId) {
-      if (!confirm('Revert to this version? The current prompt will be saved to history first so you can undo if needed.')) return;
-      try {
-        const response = await fetch('/admin/dashboard/revert-prompt', {
-          method: 'POST',
-          credentials: 'same-origin',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ key: key, version_id: versionId })
-        });
-        if (!response.ok) throw new Error(await response.text());
-        // Reload the prompt text and refresh version history
-        await loadPrompts();
-        await loadPromptVersions(key);
-        alert('✓ Prompt reverted. The previous version has been saved to history.');
-      } catch (err) {
-        alert('❌ Revert failed: ' + err.message);
-      }
-    }
-
     // Handle prompts form submission
     document.getElementById('prompts-form').addEventListener('submit', async (e) => {
       e.preventDefault();
@@ -862,16 +764,13 @@ export function getDashboardHtml(status: {
         });
 
         if (!response.ok) throw new Error(await response.text());
-
+        
         statusEl.className = 'alert alert-success';
-        statusEl.innerHTML = '<strong>✓ Prompts saved!</strong> The previous version has been archived. Changes apply to the next case processed.';
-        // Reload version history panels if they are currently open
-        if (document.getElementById('era-versions-panel').style.display !== 'none') loadPromptVersions('prompt_era');
-        if (document.getElementById('ec-versions-panel').style.display !== 'none') loadPromptVersions('prompt_ec');
+        statusEl.innerHTML = '<strong>✓ Prompts saved successfully!</strong> Changes will apply to the next case processed.';
         setTimeout(() => {
           statusEl.innerHTML = '';
           statusEl.className = '';
-        }, 6000);
+        }, 5000);
       } catch (err) {
         statusEl.className = 'alert alert-error';
         statusEl.innerHTML = '<strong>❌ Error:</strong> ' + err.message;
@@ -934,115 +833,89 @@ export function getDashboardHtml(status: {
       }
     }
 
-    // Save or clear the email notice banner
-    async function saveNotice() {
-      const textarea = document.getElementById('notice-text');
-      const statusEl = document.getElementById('notice-status');
-      const notice = textarea.value.trim();
-      statusEl.className = '';
-      statusEl.innerHTML = '⏳ Saving…';
-      try {
-        const response = await fetch('/admin/notice-banner', {
-          method: 'POST',
-          credentials: 'same-origin',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ notice }),
-        });
-        if (!response.ok) throw new Error(await response.text());
-        const result = await response.json();
-        statusEl.className = 'alert alert-success';
-        statusEl.innerHTML = '<strong>✓</strong> Notice ' + (notice ? 'saved' : 'cleared') + '. It will appear in the next digest email.';
-        setTimeout(() => { statusEl.innerHTML = ''; statusEl.className = ''; }, 5000);
-      } catch (err) {
-        statusEl.className = 'alert alert-error';
-        statusEl.innerHTML = '<strong>❌ Error:</strong> ' + err.message;
-      }
-    }
-
-    async function clearNotice() {
-      document.getElementById('notice-text').value = '';
-      await saveNotice();
-    }
-
-    // Handle awards backfill
-    async function backfillAwards() {
-      const statusEl = document.getElementById('awards-status');
-      const limit = document.getElementById('awards-limit').value;
-      statusEl.className = '';
-      statusEl.innerHTML = '⏳ Extracting awards data for up to ' + limit + ' cases — this may take a minute...';
-
-      try {
-        const response = await fetch('/admin/dashboard/backfill-awards?limit=' + limit, {
-          method: 'POST',
-          credentials: 'same-origin',
-        });
-
-        if (!response.ok) throw new Error(await response.text());
-        const result = await response.json();
-        statusEl.className = 'alert alert-success';
-        statusEl.innerHTML = '<strong>✓ Done!</strong> ' + (result.message || JSON.stringify(result));
-        setTimeout(() => { statusEl.innerHTML = ''; statusEl.className = ''; }, 8000);
-      } catch (err) {
-        statusEl.className = 'alert alert-error';
-        statusEl.innerHTML = '<strong>❌ Error:</strong> ' + err.message;
-      }
-    }
-
-    // Upload a single ERA case by PDF URL
-    async function uploadEraUrl() {
-      const pdfUrl = document.getElementById('era-pdf-url').value.trim();
-      const statusEl = document.getElementById('era-url-status');
-      if (!pdfUrl) {
-        statusEl.className = 'alert alert-error';
-        statusEl.innerHTML = '❌ Please enter a PDF URL.';
-        return;
-      }
-      statusEl.className = '';
-      statusEl.innerHTML = '⏳ Processing case — this may take up to 45 seconds…';
-      try {
-        const response = await fetch('/admin/dashboard/upload-era-url', {
-          method: 'POST',
-          credentials: 'same-origin',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ pdfUrl }),
-        });
-        if (!response.ok) throw new Error(await response.text());
-        const result = await response.json();
-        statusEl.className = 'alert alert-success';
-        statusEl.innerHTML = '<strong>✓ Case processed!</strong> ' +
-          escHtml(result.title || result.caseId || '') +
-          '<br><small>Summary stored. It will appear in the next digest email.</small>';
-        document.getElementById('era-pdf-url').value = '';
-      } catch (err) {
-        statusEl.className = 'alert alert-error';
-        statusEl.innerHTML = '<strong>❌ Error:</strong> ' + escHtml(err.message);
-      }
-    }
-
-    // Multi-page ERA backfill
-    async function runEraBackfill() {
-      const pages = document.getElementById('era-backfill-pages').value;
-      const statusEl = document.getElementById('era-backfill-status');
-      statusEl.className = '';
-      statusEl.innerHTML = '⏳ Scraping ' + pages + ' page(s) of ERA listings — this may take a minute…';
-      try {
-        const response = await fetch('/admin/dashboard/backfill-era?pages=' + pages, {
-          method: 'POST',
-          credentials: 'same-origin',
-        });
-        if (!response.ok) throw new Error(await response.text());
-        const result = await response.json();
-        statusEl.className = 'alert alert-success';
-        statusEl.innerHTML = '<strong>✓ Done!</strong> ' + escHtml(result.message || JSON.stringify(result));
-        setTimeout(() => { statusEl.innerHTML = ''; statusEl.className = ''; }, 10000);
-      } catch (err) {
-        statusEl.className = 'alert alert-error';
-        statusEl.innerHTML = '<strong>❌ Error:</strong> ' + escHtml(err.message);
-      }
-    }
-
     // Load prompts when page loads
     document.addEventListener('DOMContentLoaded', loadPrompts);
+
+    // ─── Diagnostics ───────────────────────────────────────────────────────
+    async function runDiag(testName) {
+      const btnId = testName === 'all' ? 'diag-all-btn' : 'diag-' + testName.split('-').pop() + '-btn';
+      const resultId = testName === 'all' ? 'diag-all-result' : 'diag-' + testName.split('-').pop() + '-result';
+      const btn = document.getElementById(btnId);
+      const resultEl = document.getElementById(resultId);
+      const originalText = btn.textContent;
+      btn.textContent = '⏳ Running...';
+      btn.disabled = true;
+      resultEl.innerHTML = '';
+      resultEl.style.color = '#666';
+
+      try {
+        const url = '/admin/diagnostics?test=' + encodeURIComponent(testName);
+        const response = await fetch(url, { credentials: 'same-origin' });
+
+        // If 401, try with Bearer token from a hidden input or prompt
+        if (response.status === 401) {
+          const password = prompt('Enter admin password for diagnostics:');
+          if (!password) { btn.textContent = originalText; btn.disabled = false; return; }
+          const authResp = await fetch(url, {
+            headers: { 'Authorization': 'Bearer ' + password }
+          });
+          if (!authResp.ok) {
+            resultEl.style.color = '#c0392b';
+            resultEl.innerHTML = '❌ Auth failed — wrong password?';
+            btn.textContent = originalText;
+            btn.disabled = false;
+            return;
+          }
+          const data = await authResp.json();
+          renderDiagResults(resultEl, data);
+        } else if (response.ok) {
+          const data = await response.json();
+          renderDiagResults(resultEl, data);
+        } else {
+          const text = await response.text();
+          resultEl.style.color = '#c0392b';
+          resultEl.innerHTML = '❌ HTTP ' + response.status + ': ' + text.slice(0, 200);
+        }
+      } catch (err) {
+        resultEl.style.color = '#c0392b';
+        resultEl.innerHTML = '❌ Error: ' + err.message;
+      }
+
+      btn.textContent = originalText;
+      btn.disabled = false;
+    }
+
+    function renderDiagResults(container, data) {
+      const tests = data.tests || [data];
+      let html = '';
+
+      for (const t of tests) {
+        const total = t.summary.pass + t.summary.fail + t.summary.warn;
+        const icon = t.summary.fail > 0 ? '🔴' : t.summary.warn > 0 ? '🟡' : '🟢';
+        html += '<div style="margin: 0.5rem 0; padding: 0.5rem; background: #f9f9f9; border-radius: 4px;">';
+        html += '<div style="font-weight: bold;">' + icon + ' ' + t.label + ' — ' + t.summary.pass + '/' + total + ' passed</div>';
+        html += '<table style="width:100%; border-collapse: collapse; margin-top: 0.3rem; font-size: 12px;">';
+        html += '<tr style="border-bottom: 1px solid #e0e0e0;"><th style="text-align:left; padding: 2px 4px;">Check</th><th style="text-align:left; padding: 2px 4px;">Result</th><th style="text-align:right; padding: 2px 4px;">Time</th></tr>';
+        for (const r of t.results) {
+          const statusIcon = r.status === 'pass' ? '✅' : r.status === 'warn' ? '⚠️' : '❌';
+          html += '<tr><td style="padding: 2px 4px;">' + statusIcon + ' ' + r.label + '</td>';
+          html += '<td style="padding: 2px 4px; color: ' + (r.status === 'fail' ? '#c0392b' : r.status === 'warn' ? '#e67e22' : '#27ae60') + ';">' + escapeHtmlDiag(r.detail) + '</td>';
+          html += '<td style="padding: 2px 4px; text-align: right; color: #999;">' + r.duration_ms + 'ms</td></tr>';
+        }
+        html += '</table></div>';
+      }
+
+      container.innerHTML = html;
+      container.style.color = '#333';
+    }
+
+    function escapeHtmlDiag(text) {
+      return String(text)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+    }
   </script>
 </body>
 </html>`;

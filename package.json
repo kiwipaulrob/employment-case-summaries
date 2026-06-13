@@ -7,8 +7,6 @@
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
     "deploy:dry": "wrangler deploy --dry-run",
-    "test": "vitest run",
-    "test:watch": "vitest",
     "db:create": "wrangler d1 create era-digest",
     "db:migrate": "wrangler d1 migrations apply era-digest --remote",
     "db:migrate:local": "wrangler d1 migrations apply era-digest --local",
@@ -22,7 +20,6 @@
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20241106.0",
     "typescript": "^5.5.2",
-    "vitest": "^4.1.8",
-    "wrangler": "^3.80.0"
+    "wrangler": "^3.114.17"
   }
 }
