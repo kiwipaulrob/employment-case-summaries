@@ -27,6 +27,9 @@
 const USER_AGENT =
   'ERA-Digest/1.0 (automated digest; contact: digest@whenroutinebiteshard.com)';
 
+/** URL of the pdfminer.six extraction sidecar running on Proxmox CT 104 */
+const SIDECAR_URL = 'https://extractor.robertsons.cloud/extract';
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 /** The result of PDF processing, ready to hand to the summariser */
@@ -113,17 +116,74 @@ export async function fetchPdfAsText(pdfUrl: string): Promise<PdfContent> {
   return { strategy: 'text', text };
 }
 
+// ─── Strategy C — pdfminer.six sidecar ─────────────────────────────────────
+
+/**
+ * Fetches a PDF URL and extracts text via the pdfminer.six sidecar running
+ * on Proxmox CT 104 at extractor.robertsons.cloud.
+ *
+ * The sidecar handles CID font encoding (CMap-based character mappings) used
+ * by ERA determination PDFs, which the Workers-native JS extractor cannot
+ * resolve. Falls back to fetchPdfAsText() if the sidecar is unreachable.
+ *
+ * @throws if the HTTP request fails, the sidecar returns an error, or no
+ *   text is extracted
+ */
+async function fetchPdfViaSidecar(pdfUrl: string): Promise<PdfContent> {
+  console.log(`[pdf] Sidecar: fetching PDF from ${pdfUrl}`);
+
+  // Step 1: fetch the PDF bytes from the ERA website (same as other strategies)
+  const response = await fetch(pdfUrl, {
+    headers: { 'User-Agent': USER_AGENT },
+  });
+  if (!response.ok) {
+    throw new Error(`PDF fetch failed: HTTP ${response.status} for ${pdfUrl}`);
+  }
+
+  const bytes = await response.arrayBuffer();
+  console.log(`[pdf] Sidecar: fetched ${Math.round(bytes.byteLength / 1024)} KB`);
+
+  // Step 2: POST bytes to the pdfminer.six sidecar via Cloudflare Tunnel
+  const sidecarResponse = await fetch(SIDECAR_URL, {
+    method: 'POST',
+    body: bytes,
+    signal: AbortSignal.timeout(30_000),
+  });
+
+  const result = await sidecarResponse.json() as {
+    success: boolean;
+    text?: string;
+    text_length?: number;
+    page_count?: number;
+    method?: string;
+    error?: string;
+  };
+
+  if (!result.success || !result.text_length) {
+    throw new Error(result.error || 'Sidecar returned empty result');
+  }
+
+  console.log(
+    `[pdf] Sidecar: extracted ${result.text_length} chars across ${result.page_count} pages via ${result.method}`
+  );
+  return { strategy: 'text', text: result.text };
+}
+
 // ─── Unified entry point ──────────────────────────────────────────────────────
 
 /**
- * Retrieves PDF content using the configured strategy.
- * Automatically falls back to Strategy B if Strategy A fails.
+ * Retrieves PDF content — tries the pdfminer.six sidecar first, then falls
+ * back to Workers-native text extraction if the sidecar is unreachable.
  */
 export async function getPdfContent(
-  pdfUrl: string,
-  usePdfUrlPassthrough: boolean
+  pdfUrl: string
 ): Promise<PdfContent> {
-  return await fetchPdfAsText(pdfUrl);
+  try {
+    return await fetchPdfViaSidecar(pdfUrl);
+  } catch (err) {
+    console.warn(`[pdf] Sidecar failed, falling back to Workers-native extraction: ${err}`);
+    return await fetchPdfAsText(pdfUrl);
+  }
 }
 
 /**

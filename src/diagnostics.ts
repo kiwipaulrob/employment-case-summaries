@@ -196,7 +196,7 @@ export async function testFullSummary(env: Env): Promise<DiagnosticsReport> {
   const pdfStart = performance.now();
   let pdfContent: PdfContent;
   try {
-    pdfContent = await getPdfContent(testCase.pdfUrl, false);
+    pdfContent = await getPdfContent(testCase.pdfUrl);
     results.push(ok('pdf_extraction', `Strategy: ${pdfContent.strategy}, bytes: ${pdfContent.byteCount ?? 'N/A'}, text length: ${(pdfContent.text?.length ?? 0)}`, performance.now() - pdfStart));
   } catch (err) {
     results.push(fail('pdf_extraction', `Failed: ${String(err)}`, performance.now() - pdfStart));
@@ -240,7 +240,7 @@ export async function testPdfExtraction(env: Env): Promise<DiagnosticsReport> {
   for (const p of pdfUrls) {
     const start = performance.now();
     try {
-      const content = await getPdfContent(p.url, false);
+      const content = await getPdfContent(p.url);
       const textLen = content.text?.length ?? 0;
       if (content.strategy === 'base64') {
         results.push(warn(p.label, `base64 (PDF sent to LLM directly) — no text length available`, performance.now() - start));
@@ -359,7 +359,7 @@ export async function testEndToEnd(env: Env): Promise<DiagnosticsReport> {
   const pdfStart = performance.now();
   let pdfContent: PdfContent;
   try {
-    pdfContent = await getPdfContent(candidate.pdfUrl!, false);
+    pdfContent = await getPdfContent(candidate.pdfUrl!);
     const textLen = pdfContent.text?.length ?? 0;
     const byteCount = pdfContent.byteCount ?? 0;
     results.push(ok('pdf_extract', `Strategy: ${pdfContent.strategy}, text: ${textLen} chars, bytes: ${byteCount}`, performance.now() - pdfStart));

@@ -890,7 +890,7 @@ export default {
               continue;
             }
 
-            const pdfContent = await getPdfContent(c.pdfUrl, usePdfPassthrough);
+            const pdfContent = await getPdfContent(c.pdfUrl);
             const summaryResult = await summariseCase(c, pdfContent, env.OPENROUTER_API_KEY, env.OPENROUTER_MODEL, env.DB);
             if (!summaryResult.success) {
               console.warn(`ERA Backfill: summarisation failed for ${c.caseId}`);
@@ -1169,7 +1169,7 @@ Rules:
 
         // Download and extract PDF using Strategy B (FlateDecode — works for all ERA PDFs)
         const usePdfPassthrough = env.USE_PDF_URL_PASSTHROUGH !== 'false';
-        const pdfContent = await getPdfContent(pdfUrl, usePdfPassthrough);
+        const pdfContent = await getPdfContent(pdfUrl);
 
         // Summarise with ERA prompt (read from D1 at runtime)
         const summaryResult = await summariseCase(
@@ -1647,7 +1647,7 @@ async function runDigest(env: Env, force = false, limit = 3): Promise<RunResult>
         success = false;
       } else {
         try {
-          const pdfContent = await getPdfContent(c.pdfUrl, usePdfPassthrough);
+          const pdfContent = await getPdfContent(c.pdfUrl);
           const summaryResult = await summariseCase(c, pdfContent, env.OPENROUTER_API_KEY, env.OPENROUTER_MODEL);
           summary = summaryResult.summary;
           success = summaryResult.success;
