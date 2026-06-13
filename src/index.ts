@@ -403,7 +403,24 @@ export default {
       }
     }
 
-    // POST /admin/set-pause — Pause/resume via form submission
+        // POST /admin/clear-lock — Clear stuck processing lock
+    if (request.method === 'POST' && url.pathname === '/admin/clear-lock') {
+      const session = getAdminCookie(request);
+      if (session !== env.ADMIN_SECRET) {
+        return new Response('Unauthorized', { status: 401 });
+      }
+      try {
+        await env.DB.prepare("INSERT OR REPLACE INTO config (key, value, updated_at) VALUES ('is_processing', '0', datetime('now'))").run();
+        return new Response(JSON.stringify({ success: true, message: 'Processing lock cleared' }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      } catch (err) {
+        return new Response(JSON.stringify({ error: String(err) }), { status: 500 });
+      }
+    }
+
+// POST /admin/set-pause — Pause/resume via form submission
     if (request.method === 'POST' && url.pathname === '/admin/set-pause') {
       const session = getAdminCookie(request);
       if (session !== env.ADMIN_SECRET) {
