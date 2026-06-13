@@ -277,7 +277,9 @@ export default {
       const lastRun = await getConfig(env.DB, 'last_run_at');
       const lastEmail = await getConfig(env.DB, 'last_email_sent_at');
       return jsonResponse({ status: 'ok', lastRunAt: lastRun, lastEmailSentAt: lastEmail });
-    // GET /diag — Pipeline diagnostic (no auth, returns pipeline debug info)
+    }
+
+    // GET /diag — Pipeline diagnostic (returns pipeline debug info)
     if (request.method === 'GET' && url.pathname === '/diag') {
       try {
         const isProc = await isProcessing(env.DB);
@@ -285,7 +287,6 @@ export default {
         const lastErr = await getConfig(env.DB, 'last_error');
         const procVal = await env.DB.prepare("SELECT value, updated_at FROM config WHERE key = 'is_processing'").first();
         
-        // Test scrape
         let scrapeResult = 'not tested';
         try {
           const allCases = await scrapeRecentPage(env.SOURCE_URL);
@@ -305,9 +306,6 @@ export default {
       } catch (err) {
         return jsonResponse({ error: String(err), stack: err instanceof Error ? err.stack : '' }, 500);
       }
-    }
-
-
     }
 
     // ══════════════════════════════════════════════════════════════════════════
