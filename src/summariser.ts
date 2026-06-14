@@ -62,7 +62,9 @@ OUTCOME
 [One sentence stating the overall result — e.g. "The claim was upheld in full / dismissed / partially upheld (X issue upheld, Y issue dismissed)."]
 
 |REMEDY
-[Itemise all remedies ordered: e.g. "Compensation: $X,XXX (lost wages); $X,XXX (personal grievance); Interest: $ X,XXX; Reinstatement: [Y/N]; Reimbursement of costs: $X,XXX; Other conditions: [describe]." If no remedy was ordered, write "None ordered." If the determination is provisional, interim, conditional, or subject to later hearing, note this explicitly.]
+|[Itemise all remedies ordered: e.g. "Compensation: $X,XXX (lost wages); $X,XXX (personal grievance); Interest: $ X,XXX; Reinstatement: [Y/N]; Reimbursement of costs: $X,XXX; Other conditions: [describe]." If no remedy was ordered, write "None ordered." If the determination is provisional, interim, conditional, or subject to later hearing, note this explicitly.]
+
+Do not add an "Executive Summary", "Overview", or any preamble before the PARTIES section — start directly with PARTIES.
 
 ---FORMAT END---
 
