@@ -106,6 +106,7 @@ export function stripLlmArtifacts(text: string): string {
   // Remove format markers
   cleaned = cleaned.replace(/^---?FORMAT\s+START---?\s*\n*/im, '');
   cleaned = cleaned.replace(/\n*---?FORMAT\s+END---?\s*$/im, '');
+  cleaned = cleaned.replace(/\n{2,}---[\s-]*$/m, ''); // trailing --- dashes LLMs sometimes emit
 
   return cleaned.trim();
 }
@@ -165,6 +166,7 @@ export function summaryToPageHtml(summary: string): string {
     'REPRESENTATIVES': 'Representatives',
     'FACTS': 'Facts',
     'ERA FINDINGS': 'ERA Findings',
+    'EXECUTIVE SUMMARY': 'Executive Summary',
     'EMPLOYMENT COURT ISSUES RAISED': 'Employment Court Issues Raised',
     'HOW THE EMPLOYMENT COURT ISSUES WERE RESOLVED': 'How the Employment Court Issues Were Resolved',
     'LEGAL ISSUES': 'Legal issues',
@@ -192,12 +194,12 @@ export function summaryToPageHtml(summary: string): string {
           .split('\n')
           .map(l => l.replace(/^(\d+[.)]|[•\-])\s*/, '').trim())
           .filter(Boolean);
-        const listHtml = items.map(i => `<li>${escapeHtml(i)}</li>`).join('');
+        const listHtml = items.map(i => `<li>${escapeHtml(i).replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')}</li>`).join('');
         parts.push(`<div class="sum-body"><ol>${listHtml}</ol></div>`);
       } else {
         const paras = content.split(/\n{2,}/).map(p => p.trim()).filter(Boolean);
         const paraHtml = paras
-          .map(p => `<p>${escapeHtml(p).replace(/\n/g, '<br>')}</p>`)
+          .map(p => `<p>${escapeHtml(p).replace(/\n/g, '<br>').replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')}</p>`)
           .join('');
         parts.push(`<div class="sum-body">${paraHtml}</div>`);
       }
