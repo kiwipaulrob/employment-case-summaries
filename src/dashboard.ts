@@ -604,8 +604,11 @@ export function getDashboardHtml(status: {
       event.preventDefault();
       document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
       document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
-      document.getElementById(tabName).classList.add('active');
+      const tab = document.getElementById(tabName);
+      if (tab) tab.classList.add('active');
       event.target.classList.add('active');
+      // Auto-load content when specific tabs are opened
+      if (tabName === 'errors') loadErrors();
     }
 
     function dragOver(event) {
@@ -776,6 +779,8 @@ export function getDashboardHtml(status: {
           container.innerHTML = '<p style="color: #999; text-align: center; padding: 2rem;">No errors logged yet — the pipeline is running clean.</p>';
           return;
         }
+        // Browser-safe HTML escape
+        function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
         let html = '<table style="width:100%; border-collapse: collapse; font-size: 0.9rem;">';
         html += '<thead><tr style="background: #f5f5f5;">';
         html += '<th style="padding: 0.6rem; text-align: left; border-bottom: 2px solid #ddd;">Time</th>';
@@ -788,26 +793,19 @@ export function getDashboardHtml(status: {
           const levelClass = err.level === 'error' ? 'color: #c00;' : err.level === 'warn' ? 'color: #c80;' : 'color: #36c;';
           html += '<tr style="border-bottom: 1px solid #eee;">';
           html += '<td style="padding: 0.5rem 0.6rem; white-space: nowrap;">' + (err.created_at ? new Date(err.created_at + 'Z').toLocaleString() : '—') + '</td>';
-          html += '<td style="padding: 0.5rem 0.6rem;"><span style="' + levelClass + ' font-weight: 600;">' + escapeHtml(err.level || '—') + '</span></td>';
-          html += '<td style="padding: 0.5rem 0.6rem;">' + escapeHtml(err.source || '—') + '</td>';
-          html += '<td style="padding: 0.5rem 0.6rem; max-width: 400px; overflow: hidden; text-overflow: ellipsis;" title="' + escapeHtml(err.message) + '">' + escapeHtml(err.message || '—') + '</td>';
-          html += '<td style="padding: 0.5rem 0.6rem;">' + (err.case_id ? escapeHtml(err.case_id) : '—') + '</td>';
+          html += '<td style="padding: 0.5rem 0.6rem;"><span style="' + levelClass + ' font-weight: 600;">' + esc(err.level || '—') + '</span></td>';
+          html += '<td style="padding: 0.5rem 0.6rem;">' + esc(err.source || '—') + '</td>';
+          html += '<td style="padding: 0.5rem 0.6rem; max-width: 400px; overflow: hidden; text-overflow: ellipsis;" title="' + esc(err.message) + '">' + esc(err.message || '—') + '</td>';
+          html += '<td style="padding: 0.5rem 0.6rem;">' + (err.case_id ? esc(err.case_id) : '—') + '</td>';
           html += '</tr>';
         }
         html += '</tbody></table>';
         container.innerHTML = html;
       } catch (err) {
-        container.innerHTML = '<div class="alert alert-error">Failed to load errors: ' + escapeHtml(err.message) + '</div>';
+        container.innerHTML = '<div class="alert alert-error">Failed to load errors: ' + esc(err.message) + '</div>';
       } finally {
         loading.style.display = 'none';
       }
-    }
-
-    // Auto-load errors when the error log tab is shown
-    const origSwitchTab = switchTab;
-    function switchTab(event, tabName) {
-      origSwitchTab(event, tabName);
-      if (tabName === 'errors') loadErrors();
     }
 
     // Load prompts on page load
