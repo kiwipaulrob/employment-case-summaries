@@ -3,6 +3,14 @@
 ## [Unreleased]
 
 ### Added
+- **ERA internal index probe** — daily cron now probes `/determination/view/{id}` directly instead of scraping the `/recent` listing page. Probes IDs in parallel batches of 5 with 300ms delay. More reliable, no dependency on listing HTML structure, finds cases that dropped off the recent page.
+- **Rescan resets probe position** — rescanning cases resets `last_era_id` so the index probe re-discovers deleted cases for reprocessing.
+- **Silent rescan triggers pipeline** — rescanning without email now still reprocesses cases (previously just deleted them from seen_cases).
+- **D1 prompt respected in daily cron** — `runDigest()` now passes `env.DB` to `summariseCase()` so editable D1 prompts take effect in the daily pipeline, not just backfill.
+- **Awards page: contribution, penalty fields** — new stats grid and distribution chart for contribution reductions and statutory penalties. Case table now has Contribution %, Penalty, and "View →" link columns.
+- **Workers Observability** enabled in `wrangler.jsonc`.
+- **CI type-check step** in `deploy.yml` before deploy.
+- **Dependabot** config for weekly npm + GitHub Actions updates.
 - **Notice banner admin UI** (issue #44): Textarea on dashboard to set email notice banners without raw SQL.
 - **Loading spinners + confirmation dialogs** (issues #25, #17): Buttons disable and show spinners during async operations. Confirm dialogs before destructive rescan actions.
 - **Digest schedule on dashboard** (issue #16): Shows "Daily at 8am NZT (dual cron for DST)" and timezone in System Status.

@@ -9,9 +9,16 @@
 - [ ] Add CI test stage (vitest + tsc) to deploy.yml
 - [ ] Add Dependabot for automated dependency updates
 
-## 🟡 Phase 2: Scraper PR (after Phase 1)
-- [ ] Merge the large pending PR that changes how cases are scraped from the ERA website
-- [ ] Only merge after Phase 1 confirms pipeline can reliably process scraped cases
+## 🟡 Phase 2: Scraper PR (COMPLETE)
+- [x] **Merge the large pending PR that changes how cases are scraped from the ERA website**
+  - Replaced `/determinations/recent?start=N` with direct internal index probing (`/determination/view/{id}`)
+  - Probes sequential IDs in parallel batches of 5 with 300ms delay
+  - Stops after 3 consecutive 404s — no dependency on listing page structure
+  - Finds cases that dropped off the recent listing
+  - Old `scrapeRecentPage()` retained for manual backfill-era endpoint
+- [x] Rescan now resets `last_era_id` so probe re-finds deleted cases
+- [x] Silent rescan triggers reprocessing pipeline (not just delete)
+- [x] `runDigest()` passes `env.DB` to `summariseCase` so D1 prompt_era is respected
 
 ## 💙 Phase 3: Architecture Overhaul
 - [ ] Cloudflare Queues — decouple pipeline stages, eliminate 30s CPU timeout
