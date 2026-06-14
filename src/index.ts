@@ -80,6 +80,16 @@ function clearAdminCookie(): string {
   return `${SESSION_COOKIE}=; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=0`;
 }
 
+/**
+ * Checks if a request is authenticated via session cookie or Bearer token.
+ */
+function isAuthenticated(request: Request, env: Env): boolean {
+  const session = getAdminCookie(request);
+  if (session === env.ADMIN_SECRET) return true;
+  const authHeader = request.headers.get('Authorization') ?? '';
+  return authHeader.startsWith('Bearer ') && authHeader.slice(7) === env.ADMIN_SECRET;
+}
+
 // ─── Email notice helper ──────────────────────────────────────────────────────
 
 /**
@@ -1156,8 +1166,7 @@ Rules:
     //               When start_id == end_id, scrapes a single case.
     // ──────────────────────────────────────────────────────────────────────────
     if (request.method === 'POST' && url.pathname === '/admin/dashboard/scrape-id-range') {
-      const session = getAdminCookie(request);
-      if (session !== env.ADMIN_SECRET) {
+      if (!isAuthenticated(request, env)) {
         return new Response('Unauthorized', { status: 401 });
       }
       try {
@@ -1258,8 +1267,7 @@ Rules:
     //   pages      — Max listing pages to scan (1–10, default: 5)
     // ──────────────────────────────────────────────────────────────────────────
     if (request.method === 'POST' && url.pathname === '/admin/dashboard/scrape-date-range') {
-      const session = getAdminCookie(request);
-      if (session !== env.ADMIN_SECRET) {
+      if (!isAuthenticated(request, env)) {
         return new Response('Unauthorized', { status: 401 });
       }
       try {
@@ -1340,8 +1348,7 @@ Rules:
     // Request: multipart/form-data with field "files" (one or more PDFs)
     // ──────────────────────────────────────────────────────────────────────────
     if (request.method === 'POST' && url.pathname === '/admin/dashboard/upload-era-pdf') {
-      const session = getAdminCookie(request);
-      if (session !== env.ADMIN_SECRET) {
+      if (!isAuthenticated(request, env)) {
         return new Response('Unauthorized', { status: 401 });
       }
       try {
@@ -1574,8 +1581,7 @@ Rules:
 
     // GET /admin/dashboard/scraper-stats — Scraper tab stats (cookie auth)
     if (request.method === 'GET' && url.pathname === '/admin/dashboard/scraper-stats') {
-      const session = getAdminCookie(request);
-      if (session !== env.ADMIN_SECRET) {
+      if (!isAuthenticated(request, env)) {
         return new Response('Unauthorized', { status: 401 });
       }
       try {
