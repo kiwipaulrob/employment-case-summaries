@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html>
+<head><meta charset="UTF-8"><title>ERA Scraper Tab Mockup</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; font-family:-apple-system,sans-serif; }
+  body { background:#efefef; display:flex; justify-content:center; padding:40px; }
+  .phone { max-width:780px; width:100%; background:white; border-radius:12px; box-shadow:0 4px 24px rgba(0,0,0,0.12); overflow:hidden; }
+  .header { background:#4f6f52; color:white; padding:18px 24px; font-weight:600; font-size:18px; }
+  .tabs { display:flex; gap:2px; background:#ddd; padding:0; }
+  .tabs div { flex:1; padding:12px 8px; text-align:center; font-size:12px; background:#f5f5f5; color:#888; }
+  .tabs .active { background:white; color:#4f6f52; font-weight:600; border-bottom:3px solid #4f6f52; }
+  .content { padding:24px; }
+  .section { background:#f9f9f9; border:1px solid #e0e0e0; border-radius:8px; padding:20px; margin-bottom:20px; }
+  .section-title { font-weight:600; font-size:15px; margin-bottom:12px; color:#333; }
+  .stat-row { display:flex; gap:16px; margin-bottom:16px; }
+  .stat-box { flex:1; background:white; border:1px solid #e0e0e0; border-radius:6px; padding:12px; }
+  .stat-label { font-size:11px; color:#888; }
+  .stat-value { font-size:20px; font-weight:700; color:#4f6f52; }
+  .field { margin-bottom:14px; }
+  .field label { display:block; font-size:12px; font-weight:500; color:#555; margin-bottom:4px; }
+  .field input { width:100%; padding:10px 12px; border:1px solid #ccc; border-radius:6px; font-size:14px; }
+  .field .inline { display:flex; gap:10px; align-items:center; }
+  .field .inline input { flex:1; }
+  .field .inline span { color:#888; font-size:13px; }
+  .btn { background:#4f6f52; color:white; border:none; padding:10px 20px; border-radius:6px; font-size:14px; cursor:pointer; }
+  .btn:hover { background:#3d5640; }
+  .btn-sm { padding:8px 14px; font-size:12px; }
+  .btn-secondary { background:#ff7f50; }
+  .btn-secondary:hover { background:#e56a3a; }
+  .dropzone { border:2px dashed #ccc; border-radius:8px; padding:24px; text-align:center; background:white; cursor:pointer; }
+  .dropzone:hover { border-color:#4f6f52; background:#f6f9f6; }
+  .dropzone p { color:#888; font-size:13px; margin-top:8px; }
+  .tag { display:inline-block; background:#e8f0e8; color:#4f6f52; font-size:11px; padding:2px 8px; border-radius:4px; margin:2px; }
+  .status { padding:10px 14px; border-radius:6px; font-size:13px; margin-top:12px; display:none; }
+  .status.show { display:block; }
+  .status.info { background:#eef; border:1px solid #ccf; color:#00c; }
+  .status.success { background:#efe; border:1px solid #cfc; color:#060; }
+  .status.error { background:#fee; border:1px solid #fcc; color:#c00; }
+  hr { border:none; border-top:1px solid #e0e0e0; margin:20px 0; }
+</style>
+</head>
+<body>
+<div class="phone">
+  <div class="header">ERA Admin Dashboard</div>
+  <div class="tabs">
+    <div>Digest</div>
+    <div>EC Upload</div>
+    <div>Subscribers</div>
+    <div>Prompts</div>
+    <div class="active">📡 ERA Scraper</div>
+    <div>Analytics</div>
+    <div>Diagnostics</div>
+    <div>Errors</div>
+  </div>
+  <div class="content">
+
+    <!-- Section 1: Status -->
+    <div class="section">
+      <div class="section-title">📊 Current State</div>
+      <div class="stat-row">
+        <div class="stat-box">
+          <div class="stat-label">Latest ERA ID</div>
+          <div class="stat-value">21,324</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-label">Last Scraped</div>
+          <div class="stat-value" style="font-size:14px;">14 Jun 2026</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-label">Total seen_cases</div>
+          <div class="stat-value">30</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Section 2: Scrape by ID Range -->
+    <div class="section">
+      <div class="section-title">🔢 Scrape by ERA ID Range</div>
+      <p style="font-size:13px; color:#666; margin-bottom:14px;">Probes the ERA internal index — every integer maps to a real case.</p>
+      <div class="field">
+        <div class="inline">
+          <label style="white-space:nowrap; margin:0;">From ID:</label>
+          <input type="number" value="21300" style="flex:1;">
+          <label style="white-space:nowrap; margin:0 0 0 12px;">To ID:</label>
+          <input type="number" value="21350" style="flex:1;">
+          <button class="btn btn-sm">Scrape Range</button>
+        </div>
+      </div>
+      <div class="status show info">⏳ Probing IDs 21300–21350 in batches of 5...</div>
+    </div>
+
+    <!-- Section 3: Scrape by Date Range -->
+    <div class="section">
+      <div class="section-title">📅 Scrape by Date Range</div>
+      <p style="font-size:13px; color:#666; margin-bottom:14px;">Uses the ERA recent listing page. Scrapes pages to find cases within the date window.</p>
+      <div class="field">
+        <div class="inline">
+          <label style="white-space:nowrap; margin:0;">From:</label>
+          <input type="date" value="2026-06-01" style="flex:1;">
+          <label style="white-space:nowrap; margin:0 0 0 12px;">To:</label>
+          <input type="date" value="2026-06-14" style="flex:1;">
+          <button class="btn btn-sm">Scrape Dates</button>
+        </div>
+      </div>
+    </div>
+
+    <hr>
+
+    <!-- Section 4: Upload by URL -->
+    <div class="section">
+      <div class="section-title">🔗 Upload ERA Case by URL</div>
+      <p style="font-size:13px; color:#666; margin-bottom:14px;">Paste an ERA determination PDF URL to summarise it. Handles cases that have dropped off the recent listing.</p>
+      <div class="field">
+        <div class="inline">
+          <input type="text" placeholder="https://determinations.era.govt.nz/assets/elawpdf/2026/2026-NZERA-225.pdf" style="flex:1;">
+          <button class="btn btn-sm">Summarise</button>
+        </div>
+      </div>
+      <div class="status show success">✅ Summarised: <strong>John Huntley-Byrne v Dallison 2021 Limited [2026] NZERA 354</strong></div>
+    </div>
+
+    <!-- Section 5: Multi-file Upload -->
+    <div class="section">
+      <div class="section-title">📁 Bulk ERA PDF Upload</div>
+      <p style="font-size:13px; color:#666; margin-bottom:14px;">Upload ERA PDF files directly. The worker extracts metadata from the filename and summarises each one.</p>
+      <div class="dropzone" onclick="alert('File picker would open')">
+        <div style="font-size:32px; color:#999;">📄</div>
+        <p><strong>Click to select ERA PDF files</strong><br>or drag and drop them here</p>
+        <p style="font-size:11px; color:#bbb; margin-top:4px;">Accepts .pdf files — processed one at a time</p>
+      </div>
+      <div class="status show info">⏳ Processing 3 of 5 files...</div>
+    </div>
+
+  </div>
+</div>
+</body>
+</html>

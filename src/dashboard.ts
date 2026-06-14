@@ -300,6 +300,7 @@ export function getDashboardHtml(status: {
       <button class="tab-btn" type="button" onclick="switchTab(event, 'analytics')">Analytics</button>
       <button class="tab-btn" type="button" onclick="switchTab(event, 'prompts')">Prompts</button>
       <button class="tab-btn" type="button" onclick="switchTab(event, 'rescan')">Rescan</button>
+      <button class="tab-btn" type="button" onclick="switchTab(event, 'scraper')">📡 ERA Scraper</button>
       <button class="tab-btn" type="button" onclick="switchTab(event, 'diagnostics')">Diagnostics</button>
       <button class="tab-btn" type="button" onclick="switchTab(event, 'errors')">Error Log</button>
     </div>
@@ -579,6 +580,90 @@ export function getDashboardHtml(status: {
       </div>
     </div>
 
+    <!-- ERA Scraper Tab -->
+    <div id="scraper" class="tab-content">
+      <!-- Stats Bar -->
+      <div class="card">
+        <div class="card-title">📊 Current State</div>
+        <div class="stats-grid" id="scraper-stats">
+          <div class="stat-item">
+            <div class="stat-label">Latest ERA ID</div>
+            <div class="stat-value" id="stat-last-id">—</div>
+          </div>
+          <div class="stat-item">
+            <div class="stat-label">Latest Case</div>
+            <div class="stat-value" id="stat-latest-case" style="font-size:13px; line-height:1.3;">—</div>
+          </div>
+          <div class="stat-item">
+            <div class="stat-label">Total Cases</div>
+            <div class="stat-value" id="stat-total-cases">—</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ID Range Scrape -->
+      <div class="card">
+        <div class="card-title">🔢 Scrape by ERA ID</div>
+        <p style="color:#666;font-size:13px;margin-bottom:12px;">Probes the ERA internal index. Set same start & end ID to scrape a single case.</p>
+        <div class="form-group" style="display:flex;gap:12px;align-items:flex-end;">
+          <div style="flex:1;">
+            <label>Start ID</label>
+            <input type="number" id="scrape-id-start" value="21300" min="1">
+          </div>
+          <div style="flex:1;">
+            <label>End ID</label>
+            <input type="number" id="scrape-id-end" value="21300" min="1">
+          </div>
+          <button class="button" onclick="scrapeIdRange()" id="scrape-id-btn">Scrape</button>
+        </div>
+        <div id="scrape-id-status" class="upload-status" style="margin-top:12px;"></div>
+      </div>
+
+      <!-- Date Range Scrape -->
+      <div class="card">
+        <div class="card-title">📅 Scrape by Date Range</div>
+        <p style="color:#666;font-size:13px;margin-bottom:12px;">Scans the ERA recent listing pages for cases within a date window.</p>
+        <div class="form-group" style="display:flex;gap:12px;align-items:flex-end;">
+          <div style="flex:1;">
+            <label>From</label>
+            <input type="date" id="scrape-date-from">
+          </div>
+          <div style="flex:1;">
+            <label>To</label>
+            <input type="date" id="scrape-date-to">
+          </div>
+          <button class="button" onclick="scrapeDateRange()" id="scrape-date-btn">Scrape</button>
+        </div>
+        <div id="scrape-date-status" class="upload-status" style="margin-top:12px;"></div>
+      </div>
+
+      <!-- URL Upload -->
+      <div class="card">
+        <div class="card-title">🔗 Upload ERA Case by URL</div>
+        <p style="color:#666;font-size:13px;margin-bottom:12px;">Paste an ERA determination PDF URL to summarise it.</p>
+        <div class="form-group" style="display:flex;gap:12px;align-items:flex-end;">
+          <div style="flex:1;">
+            <input type="text" id="era-url-input" placeholder="https://determinations.era.govt.nz/assets/elawpdf/2026/2026-NZERA-XXX.pdf">
+          </div>
+          <button class="button" onclick="uploadEraUrl()" id="era-url-btn">Summarise</button>
+        </div>
+        <div id="era-url-status" class="upload-status" style="margin-top:12px;"></div>
+      </div>
+
+      <!-- Bulk PDF Upload -->
+      <div class="card">
+        <div class="card-title">📁 Bulk ERA PDF Upload</div>
+        <p style="color:#666;font-size:13px;margin-bottom:12px;">Upload ERA PDF files directly. Metadata is extracted from the filename.</p>
+        <div id="era-dropzone" style="border:2px dashed #ccc;border-radius:8px;padding:24px;text-align:center;background:#fff;cursor:pointer;" onclick="document.getElementById('era-pdf-input').click()">
+          <div style="font-size:32px;color:#999;">📄</div>
+          <p><strong>Click to select ERA PDF files</strong><br>or drag and drop here</p>
+          <p style="font-size:11px;color:#bbb;margin-top:4px;">Accepts .pdf files — processed sequentially</p>
+        </div>
+        <input type="file" id="era-pdf-input" accept=".pdf" multiple style="display:none;" onchange="handleEraPdfFiles()">
+        <div id="era-upload-status" class="upload-status" style="margin-top:12px;"></div>
+      </div>
+    </div>
+
     <!-- Error Log Tab -->
     <div id="errors" class="tab-content">
       <div class="card">
@@ -609,6 +694,7 @@ export function getDashboardHtml(status: {
       event.target.classList.add('active');
       // Auto-load content when specific tabs are opened
       if (tabName === 'errors') loadErrors();
+      if (tabName === 'scraper') loadScraperStats();
     }
 
     function dragOver(event) {
@@ -643,9 +729,26 @@ export function getDashboardHtml(status: {
       }
     }
 
-    document.getElementById('dropzone').addEventListener('click', () => {
-      document.getElementById('pdf-input').click();
-    });
+    const dropzone = document.getElementById('dropzone');
+    if (dropzone) {
+      dropzone.addEventListener('click', () => {
+        document.getElementById('pdf-input').click();
+      });
+    }
+
+    const eraDropzone = document.getElementById('era-dropzone');
+    if (eraDropzone) {
+      eraDropzone.addEventListener('dragover', (e) => { e.preventDefault(); eraDropzone.style.borderColor = '#4f6f52'; eraDropzone.style.background = '#f6f9f6'; });
+      eraDropzone.addEventListener('dragleave', () => { eraDropzone.style.borderColor = '#ccc'; eraDropzone.style.background = '#fff'; });
+      eraDropzone.addEventListener('drop', (e) => {
+        e.preventDefault();
+        eraDropzone.style.borderColor = '#ccc'; eraDropzone.style.background = '#fff';
+        if (e.dataTransfer.files.length > 0) {
+          document.getElementById('era-pdf-input').files = e.dataTransfer.files;
+          handleEraPdfFiles();
+        }
+      });
+    }
 
     document.getElementById('ec-form').addEventListener('submit', async (e) => {
       e.preventDefault();
@@ -754,6 +857,179 @@ export function getDashboardHtml(status: {
 
     function cancelPreview() {
       document.getElementById('preview-section').style.display = 'none';
+    }
+
+    // Auto-load scraper stats when the scraper tab is shown
+    async function loadScraperStats() {
+      const lastIdEl = document.getElementById('stat-last-id');
+      const caseEl = document.getElementById('stat-latest-case');
+      const totalEl = document.getElementById('stat-total-cases');
+      try {
+        const resp = await fetch('/admin/status', { credentials: 'same-origin' });
+        if (resp.ok) {
+          const data = await resp.json();
+          if (totalEl) totalEl.textContent = data.total_cases ?? '—';
+        }
+      } catch {}
+      try {
+        const resp = await fetch('/admin/seen-cases?limit=1', { credentials: 'same-origin' });
+        if (resp.ok) {
+          const data = await resp.json();
+          if (data.cases?.[0]) {
+            const c = data.cases[0];
+            if (lastIdEl) {
+              const idMatch = c.case_url?.match(/\/view\/(\d+)/);
+              lastIdEl.textContent = idMatch ? idMatch[1] : '—';
+            }
+            if (caseEl) caseEl.textContent = c.title?.substring(0, 60) + (c.title?.length > 60 ? '…' : '') || '—';
+          }
+        }
+      } catch {}
+    }
+
+    async function scrapeIdRange() {
+      const start = document.getElementById('scrape-id-start')?.value;
+      const end = document.getElementById('scrape-id-end')?.value;
+      const btn = document.getElementById('scrape-id-btn');
+      const status = document.getElementById('scrape-id-status');
+      if (!start || !end || !btn || !status) return;
+      btn.disabled = true; btn.textContent = '⏳ Scraping...';
+      status.className = 'upload-status show alert alert-info';
+      status.textContent = '⏳ Probing ERA IDs ' + start + '–' + end + '...';
+      try {
+        const resp = await fetch('/admin/dashboard/scrape-id-range?start_id=' + start + '&end_id=' + end, { credentials: 'same-origin' });
+        const data = await resp.json();
+        if (data.success) {
+          const parts = [];
+          if (data.processed > 0) parts.push('✅ Processed ' + data.processed + ' case(s)');
+          if (data.failed > 0) parts.push('❌ ' + data.failed + ' failed');
+          if (data.found > 0 && data.processed === 0) parts.push('📡 Found ' + data.new + ' new case(s) — already at processing limit');
+          if (data.found === 0) parts.push('📭 No cases found in that range');
+          status.className = 'upload-status show alert ' + (data.processed > 0 ? 'alert-success' : 'alert-info');
+          status.innerHTML = parts.join('<br>') + '<br><small>' + data.message + '</small>';
+        } else {
+          status.className = 'upload-status show alert alert-error';
+          status.textContent = '❌ Error: ' + (data.error || 'Unknown');
+        }
+      } catch (err) {
+        status.className = 'upload-status show alert alert-error';
+        status.textContent = '❌ Request failed: ' + err.message;
+      }
+      btn.disabled = false; btn.textContent = 'Scrape';
+    }
+
+    async function scrapeDateRange() {
+      const dateFrom = document.getElementById('scrape-date-from')?.value;
+      const dateTo = document.getElementById('scrape-date-to')?.value;
+      const btn = document.getElementById('scrape-date-btn');
+      const status = document.getElementById('scrape-date-status');
+      if (!btn || !status) return;
+      btn.disabled = true; btn.textContent = '⏳ Scraping...';
+      status.className = 'upload-status show alert alert-info';
+      status.textContent = '⏳ Scanning ERA listing pages...';
+      try {
+        let url = '/admin/dashboard/scrape-date-range';
+        const params = [];
+        if (dateFrom) params.push('date_from=' + encodeURIComponent(dateFrom));
+        if (dateTo) params.push('date_to=' + encodeURIComponent(dateTo));
+        if (params.length) url += '?' + params.join('&');
+        const resp = await fetch(url, { credentials: 'same-origin' });
+        const data = await resp.json();
+        if (data.success) {
+          const parts = [];
+          parts.push('📡 Scanned ' + data.scraped + ' cases, ' + data.in_range + ' in date range');
+          if (data.processed > 0) parts.push('✅ Processed ' + data.processed + ' case(s)');
+          if (data.failed > 0) parts.push('❌ ' + data.failed + ' failed');
+          if (data.new > 0 && data.processed === 0) parts.push('⚠️ Found ' + data.new + ' new case(s) — at processing limit');
+          status.className = 'upload-status show alert ' + (data.processed > 0 ? 'alert-success' : 'alert-info');
+          status.innerHTML = parts.join('<br>');
+        } else {
+          status.className = 'upload-status show alert alert-error';
+          status.textContent = '❌ Error: ' + (data.error || 'Unknown');
+        }
+      } catch (err) {
+        status.className = 'upload-status show alert alert-error';
+        status.textContent = '❌ Request failed: ' + err.message;
+      }
+      btn.disabled = false; btn.textContent = 'Scrape';
+    }
+
+    async function uploadEraUrl() {
+      const urlInput = document.getElementById('era-url-input');
+      const btn = document.getElementById('era-url-btn');
+      const status = document.getElementById('era-url-status');
+      if (!urlInput || !btn || !status) return;
+      const pdfUrl = urlInput.value.trim();
+      if (!pdfUrl) { status.className = 'upload-status show alert alert-error'; status.textContent = '❌ Please enter a PDF URL'; return; }
+      btn.disabled = true; btn.textContent = '⏳ Summarising...';
+      status.className = 'upload-status show alert alert-info';
+      status.textContent = '⏳ Processing...';
+      try {
+        const resp = await fetch('/admin/dashboard/upload-era-url', {
+          method: 'POST', credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ pdfUrl }),
+        });
+        const data = await resp.json();
+        if (data.success) {
+          status.className = 'upload-status show alert alert-success';
+          status.textContent = '✅ ' + (data.message || 'Case summarised successfully');
+        } else {
+          status.className = 'upload-status show alert alert-error';
+          status.textContent = '❌ ' + (data.error || data.message || 'Upload failed');
+        }
+      } catch (err) {
+        status.className = 'upload-status show alert alert-error';
+        status.textContent = '❌ Request failed: ' + err.message;
+      }
+      btn.disabled = false; btn.textContent = 'Summarise';
+    }
+
+    async function handleEraPdfFiles() {
+      const input = document.getElementById('era-pdf-input');
+      const status = document.getElementById('era-upload-status');
+      if (!input || !input.files.length || !status) return;
+      const totalFiles = input.files.length;
+      status.className = 'upload-status show alert alert-info';
+      status.textContent = '⏳ Uploading ' + totalFiles + ' file(s)...';
+      try {
+        const formData = new FormData();
+        for (const file of input.files) {
+          formData.append('files', file);
+        }
+        const resp = await fetch('/admin/dashboard/upload-era-pdf', {
+          method: 'POST', credentials: 'same-origin',
+          body: formData,
+        });
+        const data = await resp.json();
+        if (data.success) {
+          const details = data.details || [];
+          const successCount = details.filter(d => d.success).length;
+          const failCount = details.filter(d => !d.success).length;
+          let html = '';
+          if (successCount > 0) html += '✅ ' + successCount + ' processed<br>';
+          if (failCount > 0) html += '❌ ' + failCount + ' failed<br>';
+          html += '<div style="font-size:12px;margin-top:8px;max-height:200px;overflow-y:auto;">';
+          for (const d of details) {
+            html += '<div style="padding:4px 0;border-bottom:1px solid #eee;">';
+            html += d.success ? '✅ ' : '❌ ';
+            html += esc(d.filename);
+            if (d.title) html += '<br><span style="color:#666;">' + esc(d.title) + '</span>';
+            if (d.error) html += '<br><span style="color:#c00;">' + esc(d.error) + '</span>';
+            html += '</div>';
+          }
+          html += '</div>';
+          status.className = 'upload-status show alert ' + (failCount === 0 ? 'alert-success' : 'alert-info');
+          status.innerHTML = html;
+        } else {
+          status.className = 'upload-status show alert alert-error';
+          status.textContent = '❌ Error: ' + (data.error || 'Upload failed');
+        }
+      } catch (err) {
+        status.className = 'upload-status show alert alert-error';
+        status.textContent = '❌ Request failed: ' + err.message;
+      }
+      input.value = '';
     }
 
     // Load error log entries

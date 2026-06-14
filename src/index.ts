@@ -1143,6 +1143,293 @@ Rules:
     }
 
     // ──────────────────────────────────────────────────────────────────────────
+    // POST /admin/dashboard/scrape-id-range
+    //
+    // Scrapes ERA cases by internal ID range. Probes each ID in [start_id, end_id]
+    // using scrapeEraDetailPage(). Processes unseen cases.
+    //
+    // Query params:
+    //   start_id  — First ERA ID to probe (default: latest known - 50)
+    //   end_id    — Last ERA ID to probe (default: latest known)
+    //               When start_id == end_id, scrapes a single case.
+    // ──────────────────────────────────────────────────────────────────────────
+    if (request.method === 'POST' && url.pathname === '/admin/dashboard/scrape-id-range') {
+      const session = getAdminCookie(request);
+      if (session !== env.ADMIN_SECRET) {
+        return new Response('Unauthorized', { status: 401 });
+      }
+      try {
+        const rawEnd = url.searchParams.get('end_id');
+        const rawStart = url.searchParams.get('start_id');
+        // Default: probe near latest known ID
+        const lastIdRaw = await getConfig(env.DB, 'last_era_id');
+        const lastKnown = lastIdRaw ? parseInt(lastIdRaw, 10) : 21324;
+        const endId = rawEnd ? parseInt(rawEnd, 10) : lastKnown;
+        const startId = rawStart ? parseInt(rawStart, 10) : Math.max(endId - 49, 1);
+        if (isNaN(startId) || isNaN(endId) || startId > endId || startId < 1) {
+          return jsonResponse({ error: 'Invalid ID range. start_id must be <= end_id and >= 1.' }, 400);
+        }
+        const total = endId - startId + 1;
+        console.log(`ERA ID Scrape: probing ${startId}–${endId} (${total} IDs)`);
+
+        // Probe in batches of 5, stop after 3 consecutive misses in the last batch
+        const BATCH = 5;
+        const allCases: import('./types').CaseListing[] = [];
+        let consecutiveMisses = 0;
+        let probeCount = 0;
+        for (let id = startId; id <= endId && consecutiveMisses < 3; id += BATCH) {
+          const batchIds = Array.from({ length: BATCH }, (_, i) => id + i).filter(i => i <= endId);
+          const batchResults = await Promise.all(
+            batchIds.map(i => scrapeEraDetailPage(i).catch(() => null))
+          );
+          probeCount += batchIds.length;
+          let batchHits = 0;
+          for (const detail of batchResults) {
+            if (detail) { allCases.push(detail); batchHits++; }
+          }
+          consecutiveMisses = batchHits === 0 ? consecutiveMisses + 1 : 0;
+        }
+
+        // Filter to new cases
+        const newCases = await filterNewCases(env.DB, allCases);
+        console.log(`ERA ID Scrape: ${allCases.length} found, ${newCases.length} new, ${probeCount} probes`);
+
+        // Process up to 5 cases synchronously
+        const batch = newCases.slice(0, 5);
+        let processed = 0;
+        let failed = 0;
+        let lastError: string | null = null;
+
+        for (const c of batch) {
+          try {
+            if (!c.pdfUrl) { failed++; continue; }
+            const pdfContent = await getPdfContent(c.pdfUrl);
+            const summaryResult = await summariseCase(c, pdfContent, env.OPENROUTER_API_KEY, env.OPENROUTER_MODEL, env.DB);
+            if (!summaryResult.success) { failed++; continue; }
+            const { awardsData, strippedSummary } = parseAwardsBlock(summaryResult.summary);
+            const betterTitle = extractTitleFromSummary(strippedSummary, c.category);
+            await markCaseSeen(env.DB, {
+              ...c, title: betterTitle || c.title, summary: strippedSummary,
+              processedAt: new Date().toISOString(), source: 'ERA',
+            }, 'ERA');
+            if (awardsData && c.pdfUrl) {
+              const pdfFilename = c.pdfUrl.split('/').pop() ?? '';
+              if (pdfFilename) {
+                await insertCaseAward(env.DB, pdfFilename, 'ERA', awardsData, 'prompt_structured')
+                  .catch(e => console.warn(`Awards insert failed: ${e}`));
+              }
+            }
+            processed++;
+          } catch (err) {
+            console.error(`ID scrape failed for ${c.caseId}: ${err}`);
+            lastError = String(err);
+            failed++;
+          }
+        }
+
+        // Update last_era_id to highest probed ID
+        const newLastId = Math.max(startId, endId);
+        await setConfig(env.DB, 'last_era_id', String(newLastId));
+
+        return jsonResponse({
+          success: true, probed: probeCount, found: allCases.length, new: newCases.length,
+          processed, failed, last_error: lastError,
+          message: processed > 0
+            ? `Processed ${processed} case(s). ${failed > 0 ? `${failed} failed.` : ''}`
+            : newCases.length > 0 ? `Found ${newCases.length} new case(s) but none processed.` : 'No new cases found.',
+        });
+      } catch (err) {
+        console.error(`ERA ID Scrape error: ${err}`);
+        return jsonResponse({ success: false, error: String(err) }, 500);
+      }
+    }
+
+    // ──────────────────────────────────────────────────────────────────────────
+    // POST /admin/dashboard/scrape-date-range
+    //
+    // Scrapes ERA recent listing pages to find cases within a date window.
+    // Uses the older /recent pagination approach.
+    //
+    // Query params:
+    //   date_from  — Start date (YYYY-MM-DD, default: 7 days ago)
+    //   date_to    — End date (YYYY-MM-DD, default: today)
+    //   pages      — Max listing pages to scan (1–10, default: 5)
+    // ──────────────────────────────────────────────────────────────────────────
+    if (request.method === 'POST' && url.pathname === '/admin/dashboard/scrape-date-range') {
+      const session = getAdminCookie(request);
+      if (session !== env.ADMIN_SECRET) {
+        return new Response('Unauthorized', { status: 401 });
+      }
+      try {
+        const pages = Math.min(Math.max(parseInt(url.searchParams.get('pages') ?? '5', 10), 1), 10);
+        const dateFrom = url.searchParams.get('date_from');
+        const dateTo = url.searchParams.get('date_to');
+
+        console.log(`ERA Date Scrape: scanning ${pages} page(s) for dates ${dateFrom ?? '7d ago'}–${dateTo ?? 'today'}`);
+
+        const allScraped = await scrapeAllPages(pages, env.SOURCE_URL);
+
+        // Filter by date range if provided
+        let filtered = allScraped;
+        if (dateFrom) {
+          const from = new Date(dateFrom);
+          filtered = filtered.filter(c => c.datePublished && new Date(c.datePublished) >= from);
+        }
+        if (dateTo) {
+          const to = new Date(dateTo);
+          to.setHours(23, 59, 59, 999);
+          filtered = filtered.filter(c => c.datePublished && new Date(c.datePublished) <= to);
+        }
+
+        console.log(`ERA Date Scrape: ${allScraped.length} scraped, ${filtered.length} in date range`);
+        const newCases = await filterNewCases(env.DB, filtered);
+        console.log(`ERA Date Scrape: ${newCases.length} new cases to process`);
+
+        // Process up to 3 cases
+        const batch = newCases.slice(0, 3);
+        let processed = 0;
+        let failed = 0;
+        let lastError: string | null = null;
+
+        for (const c of batch) {
+          try {
+            if (!c.pdfUrl) { failed++; continue; }
+            const pdfContent = await getPdfContent(c.pdfUrl);
+            const summaryResult = await summariseCase(c, pdfContent, env.OPENROUTER_API_KEY, env.OPENROUTER_MODEL, env.DB);
+            if (!summaryResult.success) { failed++; continue; }
+            const { awardsData, strippedSummary } = parseAwardsBlock(summaryResult.summary);
+            const betterTitle = extractTitleFromSummary(strippedSummary, c.category);
+            await markCaseSeen(env.DB, {
+              ...c, title: betterTitle || c.title, summary: strippedSummary,
+              processedAt: new Date().toISOString(), source: 'ERA',
+            }, 'ERA');
+            if (awardsData && c.pdfUrl) {
+              const pdfFilename = c.pdfUrl.split('/').pop() ?? '';
+              if (pdfFilename) {
+                await insertCaseAward(env.DB, pdfFilename, 'ERA', awardsData, 'prompt_structured')
+                  .catch(e => console.warn(`Awards insert failed: ${e}`));
+              }
+            }
+            processed++;
+          } catch (err) {
+            console.error(`Date scrape failed for ${c.caseId}: ${err}`);
+            lastError = String(err);
+            failed++;
+          }
+        }
+
+        return jsonResponse({
+          success: true, scraped: allScraped.length, in_range: filtered.length, new: newCases.length,
+          processed, failed, last_error: lastError,
+        });
+      } catch (err) {
+        console.error(`ERA Date Scrape error: ${err}`);
+        return jsonResponse({ success: false, error: String(err) }, 500);
+      }
+    }
+
+    // ──────────────────────────────────────────────────────────────────────────
+    // POST /admin/dashboard/upload-era-pdf
+    //
+    // Bulk ERA PDF upload. Accepts multipart form with PDF file(s).
+    // Metadata is derived from the PDF filename (citation pattern).
+    // Files are processed sequentially — one at a time.
+    //
+    // Request: multipart/form-data with field "files" (one or more PDFs)
+    // ──────────────────────────────────────────────────────────────────────────
+    if (request.method === 'POST' && url.pathname === '/admin/dashboard/upload-era-pdf') {
+      const session = getAdminCookie(request);
+      if (session !== env.ADMIN_SECRET) {
+        return new Response('Unauthorized', { status: 401 });
+      }
+      try {
+        const formData = await request.formData();
+        const pdfFiles: File[] = [];
+        for (const entry of formData.entries()) {
+          const val = entry[1];
+          if (typeof val !== 'string' && val.name && val.name.endsWith('.pdf')) {
+            pdfFiles.push(val as unknown as File);
+          }
+        }
+
+        if (pdfFiles.length === 0) {
+          return jsonResponse({ error: 'No PDF files found in upload. Use field name "files".' }, 400);
+        }
+
+        console.log(`ERA PDF Upload: ${pdfFiles.length} file(s) received`);
+        let processed = 0;
+        let failed = 0;
+        const details: Array<{ filename: string; success: boolean; title?: string; error?: string }> = [];
+
+        for (const file of pdfFiles) {
+          try {
+            const pdfFilename = file.name;
+            // Derive metadata from filename
+            const caseId = pdfFilename.replace(/\.pdf$/i, '');
+            const citMatch = pdfFilename.match(/^(\d{4})-([A-Z]+)-(\d+)\.pdf$/i);
+            const category = citMatch
+              ? `[${citMatch[1]}] ${citMatch[2].toUpperCase()} ${citMatch[3]}`
+              : null;
+
+            // Check if already in DB
+            const existing = await env.DB.prepare(
+              "SELECT summary FROM seen_cases WHERE source = 'ERA' AND pdf_filename = ?"
+            ).bind(pdfFilename).first<{summary: string}>();
+            if (existing) {
+              details.push({ filename: pdfFilename, success: false, error: 'Already exists in database' });
+              failed++;
+              continue;
+            }
+
+            // Read file bytes
+            const pdfBytes = await file.arrayBuffer();
+            const pdfContent = await getPdfContentFromBytes(new Uint8Array(pdfBytes), pdfFilename);
+
+            // Build case listing from filename
+            const caseListing: import('./types').CaseListing = {
+              caseId, title: pdfFilename.replace(/\.pdf$/i, '').replace(/-/g, ' '),
+              caseUrl: `https://determinations.era.govt.nz/determination/view/${caseId}`,
+              pdfUrl: null, member: null, datePublished: null, category,
+            };
+
+            const summaryResult = await summariseCase(caseListing, pdfContent, env.OPENROUTER_API_KEY, env.OPENROUTER_MODEL, env.DB);
+            if (!summaryResult.success) {
+              details.push({ filename: pdfFilename, success: false, error: summaryResult.error });
+              failed++;
+              continue;
+            }
+
+            const { awardsData, strippedSummary } = parseAwardsBlock(summaryResult.summary);
+            const betterTitle = extractTitleFromSummary(strippedSummary, category);
+            await markCaseSeen(env.DB, {
+              ...caseListing, title: betterTitle || caseListing.title, summary: strippedSummary,
+              processedAt: new Date().toISOString(), source: 'ERA',
+            }, 'ERA');
+
+            if (awardsData) {
+              await insertCaseAward(env.DB, pdfFilename, 'ERA', awardsData, 'prompt_structured')
+                .catch(e => console.warn(`Awards insert failed: ${e}`));
+            }
+
+            details.push({ filename: pdfFilename, success: true, title: betterTitle || caseListing.title });
+            processed++;
+          } catch (err) {
+            console.error(`ERA PDF upload failed for ${file.name}: ${err}`);
+            details.push({ filename: file.name, success: false, error: String(err) });
+            failed++;
+          }
+        }
+
+        return jsonResponse({
+          success: true, total: pdfFiles.length, processed, failed, details,
+        });
+      } catch (err) {
+        console.error(`ERA PDF Upload error: ${err}`);
+        return jsonResponse({ success: false, error: String(err) }, 500);
+      }
+    }
+
+    // ──────────────────────────────────────────────────────────────────────────
     // POST /admin/dashboard/upload-era-url
     //
     // Option C — Manual ERA case URL upload (added 8 June 2026).
