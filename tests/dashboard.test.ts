@@ -116,11 +116,14 @@ describe('dashboard HTML generation', () => {
     expect(brokenRegexLines).toEqual([]);
   });
 
-  it('renders system status values correctly', () => {
+  it('renders digest tab sections correctly', () => {
     const html = getDashboardHtml(MOCK_STATUS);
-    expect(html).toContain('30');      // total_cases
-    expect(html).toContain('2/3');     // active/total subscribers
+    expect(html).toContain('Cron Schedule');
+    expect(html).toContain('Digest State & Range');
+    expect(html).toContain('Preview');
+    expect(html).toContain('Email Templates');
     expect(html).toContain('System Running');
+    expect(html).toContain('Pause');
   });
 
   it('renders all tab sections', () => {

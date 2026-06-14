@@ -1612,6 +1612,74 @@ Rules:
       }
     }
 
+    // GET /admin/dashboard/digest-config — Digest tab config (cookie auth)
+    if (request.method === 'GET' && url.pathname === '/admin/dashboard/digest-config') {
+      if (!isAuthenticated(request, env)) return new Response('Unauthorized', { status: 401 });
+      try {
+        const [subject, bannerDefault, bannerOnetime, footerDefault, footerOnetime, rangeStart, rangeMax, lastSent] = await Promise.all([
+          getConfig(env.DB, 'email_subject'),
+          getConfig(env.DB, 'email_banner_default'),
+          getConfig(env.DB, 'email_banner_onetime'),
+          getConfig(env.DB, 'email_footer_default'),
+          getConfig(env.DB, 'email_footer_onetime'),
+          getConfig(env.DB, 'digest_range_start'),
+          getConfig(env.DB, 'digest_range_max'),
+          env.DB.prepare("SELECT title, pdf_filename, processed_at FROM seen_cases WHERE source='ERA' ORDER BY processed_at DESC LIMIT 1").first<{title: string; pdf_filename: string; processed_at: string}>(),
+        ]);
+        // Also get latest available case
+        const latestAvail = await env.DB.prepare("SELECT title, pdf_filename, case_url FROM seen_cases WHERE source='ERA' ORDER BY processed_at DESC LIMIT 1").first<{title: string; pdf_filename: string; case_url: string}>();
+        return jsonResponse({
+          email_subject: subject,
+          email_banner_default: bannerDefault,
+          email_banner_onetime: bannerOnetime,
+          email_footer_default: footerDefault,
+          email_footer_onetime: footerOnetime,
+          digest_range_start: rangeStart,
+          digest_range_max: rangeMax ? parseInt(rangeMax, 10) : 10,
+          last_sent: lastSent ? { title: lastSent.title, pdf_filename: lastSent.pdf_filename, processed_at: lastSent.processed_at } : null,
+          latest_avail: latestAvail ? { title: latestAvail.title, pdf_filename: latestAvail.pdf_filename, era_id: latestAvail.case_url?.match(/\/view\/(\d+)/)?.[1] || null } : null,
+        });
+      } catch (err) {
+        return jsonResponse({ error: String(err) }, 500);
+      }
+    }
+
+    // POST /admin/dashboard/save-email-template — Save email templates (cookie auth)
+    if (request.method === 'POST' && url.pathname === '/admin/dashboard/save-email-template') {
+      if (!isAuthenticated(request, env)) return new Response('Unauthorized', { status: 401 });
+      try {
+        const body = await request.json() as {
+          subject?: string; banner_default?: string; banner_onetime?: string;
+          footer_default?: string; footer_onetime?: string;
+        } | null;
+        if (!body) return jsonResponse({ error: 'Empty request body' }, 400);
+        const updates: Array<Promise<void>> = [];
+        if (body.subject !== undefined) updates.push(setConfig(env.DB, 'email_subject', body.subject));
+        if (body.banner_default !== undefined) updates.push(setConfig(env.DB, 'email_banner_default', body.banner_default));
+        if (body.banner_onetime !== undefined) updates.push(setConfig(env.DB, 'email_banner_onetime', body.banner_onetime));
+        if (body.footer_default !== undefined) updates.push(setConfig(env.DB, 'email_footer_default', body.footer_default));
+        if (body.footer_onetime !== undefined) updates.push(setConfig(env.DB, 'email_footer_onetime', body.footer_onetime));
+        await Promise.all(updates);
+        return jsonResponse({ success: true, message: 'Email templates saved.' });
+      } catch (err) {
+        return jsonResponse({ error: String(err) }, 500);
+      }
+    }
+
+    // POST /admin/dashboard/set-digest-range — Set next digest range override
+    if (request.method === 'POST' && url.pathname === '/admin/dashboard/set-digest-range') {
+      if (!isAuthenticated(request, env)) return new Response('Unauthorized', { status: 401 });
+      try {
+        const body = await request.json() as { start_id?: number; max_cases?: number } | null;
+        if (!body) return jsonResponse({ error: 'Empty request body' }, 400);
+        if (body.start_id !== undefined) await setConfig(env.DB, 'digest_range_start', String(body.start_id));
+        if (body.max_cases !== undefined) await setConfig(env.DB, 'digest_range_max', String(body.max_cases));
+        return jsonResponse({ success: true, message: 'Digest range updated for next run.' });
+      } catch (err) {
+        return jsonResponse({ error: String(err) }, 500);
+      }
+    }
+
     // ══════════════════════════════════════════════════════════════════════════
     // ADMIN API ROUTES (Bearer token required)
     // ══════════════════════════════════════════════════════════════════════════

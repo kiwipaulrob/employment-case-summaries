@@ -307,64 +307,109 @@ export function getDashboardHtml(status: {
 
     <!-- Digest Controls Tab -->
     <div id="digest" class="tab-content active">
+      <!-- ⏰ Cron Schedule -->
       <div class="card">
-        <div class="card-title">System Status</div>
-        <div class="stats-grid">
-          <div class="stat-item">
-            <div class="stat-label">Last Run</div>
-            <div class="stat-value">${status.last_run_at ? new Date(status.last_run_at).toLocaleString() : 'Never'}</div>
-          </div>
-          <div class="stat-item">
-            <div class="stat-label">Total Cases</div>
-            <div class="stat-value">${status.total_cases}</div>
-          </div>
-          <div class="stat-item">
-            <div class="stat-label">Active Subscribers</div>
-            <div class="stat-value">${status.active_subscribers}/${status.total_subscribers}</div>
-          </div>
+        <div class="card-title" style="display:flex;justify-content:space-between;align-items:center;">
+          <span>⏰ Cron Schedule</span>
+          <span id="cron-badge" class="button" style="font-size:11px;padding:4px 12px;background:${status.is_paused ? '#ff7f50' : '#4f6f52'};cursor:default;">${status.is_paused ? 'Paused' : 'Active'}</span>
         </div>
-
         <div class="pause-state ${status.is_paused ? 'paused' : 'running'}">
           <div>
-            <strong>${status.is_paused ? 'System Paused' : 'System Running'}</strong><br>
-            <small>${status.is_paused ? 'Cron digest is paused' : 'Cron digest is active'}</small>
+            <strong>${status.is_paused ? '🟡 System Paused' : '🟢 System Running'}</strong><br>
+            <small>${status.is_paused ? 'Cron digest is paused — no emails sent' : 'Daily at 8:00 AM NZT (next: ~' + new Date(Date.now() + 86400000).toLocaleDateString() + ' 8:00 AM NZT)'}</small>
           </div>
-          <form method="POST" action="/admin/set-pause" style="display:inline; margin:0;">
+          <form method="POST" action="/admin/set-pause" style="display:inline;margin:0;" id="pause-form">
             <input type="hidden" name="paused" value="${status.is_paused ? '0' : '1'}">
-            <button type="submit" class="button ${status.is_paused ? 'secondary' : ''}">
-              ${status.is_paused ? 'Resume' : 'Pause'}
-            </button>
+            <button type="submit" class="button ${status.is_paused ? 'secondary' : ''}" style="padding:8px 16px;">${status.is_paused ? '▶ Resume' : '⏸ Pause'}</button>
           </form>
         </div>
       </div>
 
+      <!-- 📬 Digest State & Range -->
       <div class="card">
-        <div class="card-title">Send Digest Now</div>
-        <form id="digest-form">
-          <div class="form-group">
-            <label for="digest-limit">Limit to most recent cases</label>
-            <input type="number" id="digest-limit" name="limit" min="1" max="50" value="10">
-            <small>Default: 10. Shows how many cases to include.</small>
+        <div class="card-title">📬 Digest State & Range</div>
+        <div style="display:flex;gap:10px;margin-bottom:16px;">
+          <div style="flex:1;background:white;border:1px solid #e0e0e0;border-radius:6px;padding:12px;">
+            <div style="font-size:11px;color:#888;">Latest Case Sent</div>
+            <div style="font-size:13px;font-weight:600;color:#333;margin-top:4px;" id="latest-sent-case">Loading...</div>
+            <div style="font-size:11px;color:#888;margin-top:2px;" id="latest-sent-id">—</div>
           </div>
-          <button type="submit" class="button">Preview Email</button>
-        </form>
-
-        <div id="preview-section" style="display:none; margin-top: 1.5rem;">
-          <div class="alert alert-info">
-            <strong>Email Preview</strong> - This will be sent to ${status.active_subscribers} subscriber${status.active_subscribers !== 1 ? 's' : ''}.
-          </div>
-          <div id="preview-loading" style="display:none; text-align: center; padding: 2rem;">
-            <div class="spinner"></div> Loading preview...
-          </div>
-          <div id="preview-content" class="email-preview"></div>
-          <div style="margin-top: 1rem; display: flex; gap: 1rem;">
-            <form method="POST" action="/admin/send-digest" id="send-form" style="display:inline;">
-              <input type="hidden" name="limit" id="send-limit" value="10">
-              <button type="submit" class="button">Send Now</button>
-            </form>
-            <button type="button" class="button" style="background: #999;" onclick="cancelPreview()">Cancel</button>
+          <div style="flex:1;background:white;border:1px solid #e0e0e0;border-radius:6px;padding:12px;">
+            <div style="font-size:11px;color:#888;">Latest Case Available</div>
+            <div style="font-size:13px;font-weight:600;color:#333;margin-top:4px;" id="latest-avail-case">Loading...</div>
+            <div style="font-size:11px;color:#888;margin-top:2px;" id="latest-avail-id">—</div>
           </div>
         </div>
+        <p style="font-size:12px;color:#666;margin-bottom:12px;">Controls which cases the next email includes. Override applies to the <strong>next single run only</strong>, then resets.</p>
+        <div style="display:flex;gap:12px;align-items:flex-end;">
+          <div style="flex:1;">
+            <label style="display:block;font-size:12px;font-weight:500;color:#555;margin-bottom:4px;">Include from ERA ID</label>
+            <input type="number" id="digest-range-start" style="width:100%;padding:10px 12px;border:1px solid #ccc;border-radius:6px;font-size:14px;">
+          </div>
+          <div style="flex:1;">
+            <label style="display:block;font-size:12px;font-weight:500;color:#555;margin-bottom:4px;">Max cases</label>
+            <input type="number" id="digest-range-max" value="10" min="1" max="50" style="width:100%;padding:10px 12px;border:1px solid #ccc;border-radius:6px;font-size:14px;">
+          </div>
+          <button class="button" onclick="saveDigestRange()" id="range-btn" style="white-space:nowrap;">Apply Range</button>
+        </div>
+        <div id="range-status" style="font-size:12px;color:#888;margin-top:8px;"></div>
+      </div>
+
+      <!-- 👁️ Preview Next Email -->
+      <div class="card">
+        <div class="card-title" style="display:flex;justify-content:space-between;align-items:center;">
+          <span>👁️ Preview — Cases for Next Email</span>
+          <span>
+            <button class="button" style="padding:6px 14px;font-size:12px;margin-right:6px;" onclick="loadDigestPreview()">Refresh</button>
+            <button class="button secondary" style="padding:6px 14px;font-size:12px;" onclick="sendDigestNow()" id="send-now-btn">Send Now</button>
+          </span>
+        </div>
+        <div id="digest-preview-list">
+          <p style="color:#999;">Click "Refresh" to load preview.</p>
+        </div>
+        <p style="font-size:12px;color:#999;margin-top:10px;" id="preview-meta"></p>
+        <div id="digest-send-status" class="upload-status" style="margin-top:8px;"></div>
+      </div>
+
+      <!-- ✏️ Email Templates -->
+      <div class="card">
+        <div class="card-title">✏️ Email Templates</div>
+        <p style="font-size:12px;color:#666;margin-bottom:14px;">
+          Template variables:
+          <code style="background:#e8f0e8;padding:2px 6px;border-radius:3px;">{num_cases}</code> — number of cases
+          <code style="background:#e8f0e8;padding:2px 6px;border-radius:3px;">{date}</code> — today's date
+          <code style="background:#e8f0e8;padding:2px 6px;border-radius:3px;">{id_first}</code> — first case ID
+          <code style="background:#e8f0e8;padding:2px 6px;border-radius:3px;">{id_last}</code> — last case ID
+        </p>
+        <div style="margin-bottom:14px;">
+          <label style="display:block;font-size:12px;font-weight:500;color:#555;margin-bottom:4px;">Email Subject Line</label>
+          <input type="text" id="email-subject" value="ERA Digest — {num_cases} new cases ({date})" style="width:100%;padding:10px 12px;border:1px solid #ccc;border-radius:6px;font-size:14px;">
+        </div>
+        <div style="display:flex;gap:12px;margin-bottom:14px;">
+          <div style="flex:1;">
+            <label style="display:block;font-size:12px;font-weight:500;color:#555;margin-bottom:4px;">Default Banner <span style="font-weight:400;color:#888;">(every digest)</span></label>
+            <textarea id="email-banner-default" style="width:100%;min-height:60px;padding:10px 12px;border:1px solid #ccc;border-radius:6px;font-size:13px;font-family:inherit;resize:vertical;" placeholder="Optional — shown at top of every email"></textarea>
+          </div>
+          <div style="flex:1;">
+            <label style="display:block;font-size:12px;font-weight:500;color:#555;margin-bottom:4px;">One-off Banner <span style="font-weight:400;color:#ff7f50;">next run only</span></label>
+            <textarea id="email-banner-onetime" style="width:100%;min-height:60px;padding:10px 12px;border:1px solid #ff7f50;border-radius:6px;font-size:13px;font-family:inherit;resize:vertical;" placeholder="Leave blank to use default"></textarea>
+          </div>
+        </div>
+        <div style="display:flex;gap:12px;margin-bottom:16px;">
+          <div style="flex:1;">
+            <label style="display:block;font-size:12px;font-weight:500;color:#555;margin-bottom:4px;">Default Footer</label>
+            <textarea id="email-footer-default" style="width:100%;min-height:50px;padding:10px 12px;border:1px solid #ccc;border-radius:6px;font-size:13px;font-family:inherit;resize:vertical;">You received this because you subscribed at whenroutinebiteshard.com. Unsubscribe or manage preferences.</textarea>
+          </div>
+          <div style="flex:1;">
+            <label style="display:block;font-size:12px;font-weight:500;color:#555;margin-bottom:4px;">One-off Footer <span style="font-weight:400;color:#ff7f50;">next run only</span></label>
+            <textarea id="email-footer-onetime" style="width:100%;min-height:50px;padding:10px 12px;border:1px solid #ff7f50;border-radius:6px;font-size:13px;font-family:inherit;resize:vertical;" placeholder="Leave blank to use default"></textarea>
+          </div>
+        </div>
+        <div style="display:flex;gap:10px;">
+          <button class="button" onclick="saveEmailTemplates()">Save Templates</button>
+          <button class="button secondary" onclick="resetEmailTemplates()">Reset to Defaults</button>
+        </div>
+        <div id="templates-status" class="upload-status" style="margin-top:8px;"></div>
       </div>
     </div>
 
@@ -699,6 +744,7 @@ export function getDashboardHtml(status: {
       // Auto-load content when specific tabs are opened
       if (tabName === 'errors') loadErrors();
       if (tabName === 'scraper') loadScraperStats();
+      if (tabName === 'digest') { loadDigestConfig(); loadDigestPreview(); }
     }
 
     function dragOver(event) {
@@ -862,6 +908,166 @@ export function getDashboardHtml(status: {
     function cancelPreview() {
       document.getElementById('preview-section').style.display = 'none';
     }
+
+    // ═══ Digest Tab JS ═══════════════════════════════════════════════════════
+
+    async function loadDigestConfig() {
+      try {
+        const resp = await fetch('/admin/dashboard/digest-config', { credentials: 'same-origin' });
+        if (!resp.ok) return;
+        const d = await resp.json();
+        if (d.email_subject) document.getElementById('email-subject').value = d.email_subject;
+        if (d.email_banner_default) document.getElementById('email-banner-default').value = d.email_banner_default;
+        if (d.email_banner_onetime) document.getElementById('email-banner-onetime').value = d.email_banner_onetime;
+        if (d.email_footer_default) document.getElementById('email-footer-default').value = d.email_footer_default;
+        if (d.email_footer_onetime) document.getElementById('email-footer-onetime').value = d.email_footer_onetime;
+        if (d.digest_range_start) document.getElementById('digest-range-start').value = d.digest_range_start;
+        if (d.digest_range_max) document.getElementById('digest-range-max').value = d.digest_range_max;
+
+        const sentEl = document.getElementById('latest-sent-case');
+        const sentIdEl = document.getElementById('latest-sent-id');
+        if (d.last_sent) {
+          sentEl.textContent = d.last_sent.title?.substring(0, 55) || '—';
+          sentIdEl.textContent = 'Processed: ' + (d.last_sent.processed_at ? new Date(d.last_sent.processed_at).toLocaleString() : '—');
+        } else {
+          sentEl.textContent = 'No cases sent yet';
+        }
+
+        const availEl = document.getElementById('latest-avail-case');
+        const availIdEl = document.getElementById('latest-avail-id');
+        if (d.latest_avail) {
+          availEl.textContent = d.latest_avail.title?.substring(0, 55) || '—';
+          availIdEl.textContent = 'ERA ID: ' + (d.latest_avail.era_id || '—');
+        } else {
+          availEl.textContent = 'No cases available';
+        }
+      } catch {}
+    }
+
+    async function loadDigestPreview() {
+      const list = document.getElementById('digest-preview-list');
+      const meta = document.getElementById('preview-meta');
+      list.innerHTML = '<p style="color:#999;">Loading...</p>';
+      try {
+        const rangeStart = document.getElementById('digest-range-start').value;
+        const params = new URLSearchParams();
+        if (rangeStart) params.set('start_id', rangeStart);
+        params.set('limit', '10');
+        const resp = await fetch('/admin/seen-cases?' + params.toString(), { credentials: 'same-origin' });
+        if (!resp.ok) throw new Error('HTTP ' + resp.status);
+        const data = await resp.json();
+        const cases = data.cases || [];
+        if (cases.length === 0) {
+          list.innerHTML = '<p style="color:#999;">No cases found.</p>';
+          meta.textContent = '';
+          return;
+        }
+        let html = '';
+        let unseenCount = 0;
+        for (const c of cases.slice(0, 10)) {
+          // Extract ERA ID from case_url
+          const urlParts = (c.case_url || '').split('/');
+          const lastSeg = urlParts[urlParts.length - 1];
+          const eraId = /^\d+$/.test(lastSeg) ? lastSeg : (c.case_id || '—');
+          html += '<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 10px;background:white;border:1px solid #e0e0e0;border-radius:4px;margin-bottom:6px;">';
+          html += '<span style="font-size:13px;flex:1;">' + esc(c.title || '—') + '</span>';
+          html += '<span style="font-size:11px;color:#888;margin-left:8px;white-space:nowrap;">ID ' + eraId + '</span>';
+          html += '</div>';
+          unseenCount++;
+        }
+        list.innerHTML = html;
+        meta.textContent = 'Showing ' + Math.min(cases.length, 10) + ' cases from seen_cases (most recent first). Total seen: ' + data.count;
+      } catch (err) {
+        list.innerHTML = '<div class="alert alert-error" style="font-size:13px;">❌ ' + esc(err.message) + '</div>';
+      }
+    }
+
+    async function saveDigestRange() {
+      const startId = document.getElementById('digest-range-start').value;
+      const maxCases = document.getElementById('digest-range-max').value;
+      const btn = document.getElementById('range-btn');
+      const status = document.getElementById('range-status');
+      btn.disabled = true; btn.textContent = 'Saving...';
+      try {
+        const body = {};
+        if (startId) body.start_id = parseInt(startId, 10);
+        body.max_cases = parseInt(maxCases, 10) || 10;
+        const resp = await fetch('/admin/dashboard/set-digest-range', {
+          method: 'POST', credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+        const d = await resp.json();
+        status.textContent = d.success ? '✅ ' + d.message : '❌ ' + (d.error || 'Error');
+        status.style.color = d.success ? '#060' : '#c00';
+      } catch (err) {
+        status.textContent = '❌ ' + err.message;
+        status.style.color = '#c00';
+      }
+      btn.disabled = false; btn.textContent = 'Apply Range';
+    }
+
+    async function saveEmailTemplates() {
+      const btn = event?.target || document.querySelector('[onclick="saveEmailTemplates()"]');
+      const status = document.getElementById('templates-status');
+      status.className = 'upload-status show alert alert-info';
+      status.textContent = 'Saving...';
+      try {
+        const body = {
+          subject: document.getElementById('email-subject').value,
+          banner_default: document.getElementById('email-banner-default').value,
+          banner_onetime: document.getElementById('email-banner-onetime').value,
+          footer_default: document.getElementById('email-footer-default').value,
+          footer_onetime: document.getElementById('email-footer-onetime').value,
+        };
+        const resp = await fetch('/admin/dashboard/save-email-template', {
+          method: 'POST', credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+        const d = await resp.json();
+        status.className = 'upload-status show alert ' + (d.success ? 'alert-success' : 'alert-error');
+        status.textContent = d.success ? '✅ Templates saved' : '❌ ' + (d.error || 'Error');
+      } catch (err) {
+        status.className = 'upload-status show alert alert-error';
+        status.textContent = '❌ ' + err.message;
+      }
+    }
+
+    async function resetEmailTemplates() {
+      if (!confirm('Reset all email templates to default values?')) return;
+      const status = document.getElementById('templates-status');
+      document.getElementById('email-subject').value = 'ERA Digest — {num_cases} new cases ({date})';
+      document.getElementById('email-banner-default').value = '';
+      document.getElementById('email-banner-onetime').value = '';
+      document.getElementById('email-footer-default').value = 'You received this because you subscribed at whenroutinebiteshard.com. Unsubscribe or manage preferences.';
+      document.getElementById('email-footer-onetime').value = '';
+      // Save the reset values
+      await saveEmailTemplates();
+    }
+
+    async function sendDigestNow() {
+      if (!confirm('Send digest email now to all active subscribers?')) return;
+      const btn = document.getElementById('send-now-btn');
+      const status = document.getElementById('digest-send-status');
+      btn.disabled = true; btn.textContent = 'Sending...';
+      status.className = 'upload-status show alert alert-info';
+      status.textContent = 'Sending digest...';
+      try {
+        const resp = await fetch('/admin/send-digest?limit=10&preview=false', {
+          method: 'POST', credentials: 'same-origin',
+        });
+        const d = await resp.json();
+        status.className = 'upload-status show alert ' + (d.success ? 'alert-success' : 'alert-error');
+        status.textContent = d.success ? '✅ Sent to ' + (d.sent || 0) + ' subscriber(s)' : '❌ ' + (d.error || 'Send failed');
+      } catch (err) {
+        status.className = 'upload-status show alert alert-error';
+        status.textContent = '❌ ' + err.message;
+      }
+      btn.disabled = false; btn.textContent = 'Send Now';
+    }
+
+    // ═══ End Digest Tab JS ═══════════════════════════════════════════════════
 
     // Auto-load scraper stats when the scraper tab is shown
     async function loadScraperStats() {
