@@ -301,6 +301,7 @@ export function getDashboardHtml(status: {
       <button class="tab-btn" type="button" onclick="switchTab(event, 'prompts')">Prompts</button>
       <button class="tab-btn" type="button" onclick="switchTab(event, 'rescan')">Rescan</button>
       <button class="tab-btn" type="button" onclick="switchTab(event, 'diagnostics')">Diagnostics</button>
+      <button class="tab-btn" type="button" onclick="switchTab(event, 'errors')">Error Log</button>
     </div>
 
     <!-- Digest Controls Tab -->
@@ -577,6 +578,25 @@ export function getDashboardHtml(status: {
         </div>
       </div>
     </div>
+
+    <!-- Error Log Tab -->
+    <div id="errors" class="tab-content">
+      <div class="card">
+        <div class="card-title" style="display: flex; justify-content: space-between; align-items: center;">
+          <span>Error Log</span>
+          <span style="font-size: 0.85rem; color: #666;">
+            <span id="error-loading" class="spinner" style="display:none;"></span>
+            <button class="button" style="padding: 0.4rem 1rem; font-size: 0.85rem;" onclick="loadErrors()">Refresh</button>
+          </span>
+        </div>
+        <p style="color: #666; margin-bottom: 1.5rem; font-size: 0.9rem;">
+          Recent pipeline and system errors. Shows up to 50 most recent entries.
+        </p>
+        <div id="error-log-container">
+          <p style="color: #999;">Load errors by clicking "Refresh" or opening this tab.</p>
+        </div>
+      </div>
+    </div>
   </div>
 
   <script>
@@ -731,6 +751,63 @@ export function getDashboardHtml(status: {
 
     function cancelPreview() {
       document.getElementById('preview-section').style.display = 'none';
+    }
+
+    // Load error log entries
+    async function loadErrors() {
+      const container = document.getElementById('error-log-container');
+      const loading = document.getElementById('error-loading');
+      if (!container) return;
+      loading.style.display = 'inline-block';
+      container.innerHTML = '<p style="color: #999;">Loading...</p>';
+      try {
+        const response = await fetch('/admin/errors', { credentials: 'same-origin' });
+        if (!response.ok) {
+          if (response.status === 401) {
+            container.innerHTML = '<div class="alert alert-error">Unauthorized — please log in again.</div>';
+          } else {
+            container.innerHTML = '<div class="alert alert-error">HTTP ' + response.status + '</div>';
+          }
+          return;
+        }
+        const data = await response.json();
+        const errors = data.errors || [];
+        if (errors.length === 0) {
+          container.innerHTML = '<p style="color: #999; text-align: center; padding: 2rem;">No errors logged yet — the pipeline is running clean.</p>';
+          return;
+        }
+        let html = '<table style="width:100%; border-collapse: collapse; font-size: 0.9rem;">';
+        html += '<thead><tr style="background: #f5f5f5;">';
+        html += '<th style="padding: 0.6rem; text-align: left; border-bottom: 2px solid #ddd;">Time</th>';
+        html += '<th style="padding: 0.6rem; text-align: left; border-bottom: 2px solid #ddd;">Level</th>';
+        html += '<th style="padding: 0.6rem; text-align: left; border-bottom: 2px solid #ddd;">Source</th>';
+        html += '<th style="padding: 0.6rem; text-align: left; border-bottom: 2px solid #ddd;">Message</th>';
+        html += '<th style="padding: 0.6rem; text-align: left; border-bottom: 2px solid #ddd;">Case</th>';
+        html += '</tr></thead><tbody>';
+        for (const err of errors) {
+          const levelClass = err.level === 'error' ? 'color: #c00;' : err.level === 'warn' ? 'color: #c80;' : 'color: #36c;';
+          html += '<tr style="border-bottom: 1px solid #eee;">';
+          html += '<td style="padding: 0.5rem 0.6rem; white-space: nowrap;">' + (err.created_at ? new Date(err.created_at + 'Z').toLocaleString() : '—') + '</td>';
+          html += '<td style="padding: 0.5rem 0.6rem;"><span style="' + levelClass + ' font-weight: 600;">' + escapeHtml(err.level || '—') + '</span></td>';
+          html += '<td style="padding: 0.5rem 0.6rem;">' + escapeHtml(err.source || '—') + '</td>';
+          html += '<td style="padding: 0.5rem 0.6rem; max-width: 400px; overflow: hidden; text-overflow: ellipsis;" title="' + escapeHtml(err.message) + '">' + escapeHtml(err.message || '—') + '</td>';
+          html += '<td style="padding: 0.5rem 0.6rem;">' + (err.case_id ? escapeHtml(err.case_id) : '—') + '</td>';
+          html += '</tr>';
+        }
+        html += '</tbody></table>';
+        container.innerHTML = html;
+      } catch (err) {
+        container.innerHTML = '<div class="alert alert-error">Failed to load errors: ' + escapeHtml(err.message) + '</div>';
+      } finally {
+        loading.style.display = 'none';
+      }
+    }
+
+    // Auto-load errors when the error log tab is shown
+    const origSwitchTab = switchTab;
+    function switchTab(event, tabName) {
+      origSwitchTab(event, tabName);
+      if (tabName === 'errors') loadErrors();
     }
 
     // Load prompts on page load

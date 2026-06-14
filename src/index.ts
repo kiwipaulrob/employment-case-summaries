@@ -42,6 +42,7 @@ import {
   getSubscriberByToken, updatePreferences,
   insertCaseAward, getCaseAwardRows, getCasesWithoutAwards,
   savePromptWithHistory, getPromptVersions, revertPromptToVersion,
+  insertErrorLog, getRecentErrors,
 } from './db';
 import { scrapeRecentPage, scrapeAllPages, enrichCasesWithDetails } from './scraper';
 import { getPdfContent, getPdfContentFromBytes, type PdfContent } from './pdf';
@@ -866,37 +867,38 @@ export default {
       }
       try {
         const pages = Math.min(Math.max(parseInt(url.searchParams.get('pages') ?? '3', 10), 1), 5);
-        const usePdfPassthrough = env.USE_PDF_URL_PASSTHROUGH !== 'false';
 
-        console.log(`ERA Backfill: scraping ${pages} page(s) of ERA listings`);
+        // Respond immediately, process in background
+        ctx.waitUntil((async () => {
+          console.log(`ERA Backfill: scraping ${pages} page(s) of ERA listings`);
 
-        // Scrape all requested pages and get deduplicated list
-        const allScraped = await scrapeAllPages(pages, env.SOURCE_URL);
-        console.log(`ERA Backfill: ${allScraped.length} unique cases scraped across ${pages} page(s)`);
+          const allScraped = await scrapeAllPages(pages, env.SOURCE_URL);
+          console.log(`ERA Backfill: ${allScraped.length} unique cases scraped across ${pages} page(s)`);
 
-        // Filter to only cases not yet in seen_cases
-        const newCases = await filterNewCases(env.DB, allScraped);
-        console.log(`ERA Backfill: ${newCases.length} new (unseen) cases to process`);
+          const newCases = await filterNewCases(env.DB, allScraped);
+          console.log(`ERA Backfill: ${newCases.length} new (unseen) cases to process`);
 
-        let processed = 0;
-        let failed = 0;
+          // Process at most 3 cases per invocation to stay within time limits
+          const batch = newCases.slice(0, 3);
+          let processed = 0;
+          let failed = 0;
 
-        for (const c of newCases) {
-          console.log(`ERA Backfill: processing ${c.caseId} — ${c.title}`);
-          try {
-            if (!c.pdfUrl) {
-              console.warn(`ERA Backfill: skipping ${c.caseId} — no PDF URL`);
-              failed++;
-              continue;
-            }
+          for (const c of batch) {
+            console.log(`ERA Backfill: processing ${c.caseId} — ${c.title}`);
+            try {
+              if (!c.pdfUrl) {
+                console.warn(`ERA Backfill: skipping ${c.caseId} — no PDF URL`);
+                failed++;
+                continue;
+              }
 
-            const pdfContent = await getPdfContent(c.pdfUrl);
-            const summaryResult = await summariseCase(c, pdfContent, env.OPENROUTER_API_KEY, env.OPENROUTER_MODEL, env.DB);
-            if (!summaryResult.success) {
-              console.warn(`ERA Backfill: summarisation failed for ${c.caseId}`);
-              failed++;
-              continue;
-            }
+              const pdfContent = await getPdfContent(c.pdfUrl);
+              const summaryResult = await summariseCase(c, pdfContent, env.OPENROUTER_API_KEY, env.OPENROUTER_MODEL, env.DB);
+              if (!summaryResult.success) {
+                console.warn(`ERA Backfill: summarisation failed for ${c.caseId}`);
+                failed++;
+                continue;
+              }
 
             // Strip AWARDS_DATA block before storing
             const { awardsData, strippedSummary } = parseAwardsBlock(summaryResult.summary);
@@ -929,19 +931,14 @@ export default {
           }
         }
 
-        return jsonResponse({
-          success: true,
-          pages_scraped: pages,
-          found: allScraped.length,
-          new_cases: newCases.length,
-          processed,
-          failed,
-          message: processed > 0
-            ? `Successfully processed ${processed} new ERA case(s) from ${pages} page(s). No email sent — cases stored for archive.`
-            : newCases.length === 0
-              ? `No new cases found — all ${allScraped.length} scraped case(s) already in database.`
-              : `Processed 0 cases (${failed} failed). Check worker logs.`,
-        });
+        console.log(`ERA Backfill done`);
+      })());
+
+      // Return immediately — processing happens in background
+      return jsonResponse({
+        success: true,
+        message: `Started backfill (${pages} page(s)). Processing runs in background — check seen-cases in a few minutes.`,
+      });
       } catch (err) {
         console.error(`ERA Backfill error: ${err}`);
         return jsonResponse({ success: false, error: String(err) }, 500);
@@ -1430,14 +1427,11 @@ Rules:
       }
     }
 
-    // GET /admin/errors — Get recent errors (queries config:last_error)
+    // GET /admin/errors — Get recent errors (queries error_log table)
     if (request.method === 'GET' && url.pathname === '/admin/errors') {
       try {
-        const lastError = await getConfig(env.DB, 'last_error');
-        const errors = lastError
-          ? [{ message: lastError, timestamp: new Date().toISOString(), type: 'fatal' }]
-          : [];
-        return jsonResponse({ errors });
+        const errors = await getRecentErrors(env.DB, 50);
+        return jsonResponse({ errors, count: errors.length });
       } catch (err) {
         return jsonResponse({ error: String(err) }, 500);
       }
@@ -1655,11 +1649,9 @@ async function runDigest(env: Env, force = false, limit = 3): Promise<RunResult>
         } catch (err) {
           const errMsg = `Pipeline failed for ${c.caseId}: ${err}`;
           console.error(errMsg);
-          // Also log to config table for admin dashboard visibility
+          // Log to error_log table for admin dashboard visibility
           try {
-            await env.DB.prepare(
-              `INSERT OR REPLACE INTO config (key, value, updated_at) VALUES ('last_error', ?, datetime('now'))`
-            ).bind(errMsg.substring(0, 500)).run();
+            await insertErrorLog(env.DB, 'error', 'pipeline', errMsg, undefined, c.caseId);
           } catch (_) {}
           summary = `Summary unavailable — an error occurred. [View determination](${c.caseUrl})`;
           result.failed++;
@@ -1755,10 +1747,10 @@ async function runDigest(env: Env, force = false, limit = 3): Promise<RunResult>
     const errMsg = err instanceof Error ? err.message : String(err);
     console.error(`ERA Digest: fatal error — ${errMsg}`);
     result.error = errMsg;
-    // Log to config:last_error so /admin/errors can retrieve it
-    await env.DB.prepare(
-      'INSERT OR REPLACE INTO config (key, value, updated_at) VALUES (\'last_error\', ?, datetime(\'now\'))'
-    ).bind(errMsg).catch(e => console.warn(`Failed to log last_error: ${e}`));
+    // Log to error_log table so /admin/errors can retrieve it
+    await insertErrorLog(env.DB, 'error', 'pipeline', `Fatal: ${errMsg}`).catch(e =>
+      console.warn(`Failed to log fatal error: ${e}`)
+    );
     await sendAdminAlert(
       `Fatal error:\n\n${errMsg}`,
       env.SENDING_ADDRESS, env.ADMIN_EMAIL, env.EMAIL

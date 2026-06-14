@@ -195,9 +195,9 @@ async function callOpenRouter(
   request: OpenRouterRequest,
   apiKey: string
 ): Promise<string> {
-  // Create an AbortController with a 45-second timeout
+  // Create an AbortController with a 120-second timeout (increased from 45s for larger batches)
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 45000);
+  const timeoutId = setTimeout(() => controller.abort(), 120000);
 
   try {
     const response = await fetch(OPENROUTER_BASE_URL, {

@@ -770,3 +770,64 @@ export async function getCasesWithoutAwards(
     .all<DbSeenCase>();
   return result.results;
 }
+
+// ─── Error log ──────────────────────────────────────────────────────────────
+
+/**
+ * Inserts a new entry into the error_log table.
+ * Replaces the old single config:last_error pattern with a proper log.
+ */
+export async function insertErrorLog(
+  db: D1Database,
+  level: string,
+  source: string,
+  message: string,
+  details?: string | null,
+  caseId?: string | null
+): Promise<void> {
+  await db
+    .prepare(
+      `INSERT INTO error_log (level, source, message, details, case_id, created_at)
+       VALUES (?, ?, ?, ?, ?, datetime('now'))`
+    )
+    .bind(level, source, message?.substring(0, 1000), details ?? null, caseId ?? null)
+    .run();
+}
+
+/**
+ * Returns recent error log entries, newest first.
+ */
+export async function getRecentErrors(
+  db: D1Database,
+  limit = 20,
+  sources?: string[]
+): Promise<Array<{ id: number; level: string; source: string; message: string; details: string | null; case_id: string | null; created_at: string }>> {
+  let query = 'SELECT * FROM error_log';
+  const params: unknown[] = [];
+
+  if (sources && sources.length > 0) {
+    const placeholders = sources.map(() => '?').join(', ');
+    query += ` WHERE source IN (${placeholders})`;
+    params.push(...sources);
+  }
+
+  query += ' ORDER BY created_at DESC LIMIT ?';
+  params.push(limit);
+
+  const result = await db.prepare(query).bind(...params).all<{
+    id: number; level: string; source: string; message: string;
+    details: string | null; case_id: string | null; created_at: string;
+  }>();
+  return result.results;
+}
+
+/**
+ * Deletes error log entries older than N days.
+ * Returns the number of deleted rows.
+ */
+export async function pruneErrorLog(db: D1Database, daysOld = 30): Promise<number> {
+  const result = await db
+    .prepare(`DELETE FROM error_log WHERE created_at < datetime('now', '-${daysOld} days')`)
+    .run();
+  return result.meta.changes || 0;
+}
