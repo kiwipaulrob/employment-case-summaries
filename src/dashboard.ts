@@ -591,8 +591,12 @@ export function getDashboardHtml(status: {
             <div class="stat-value" id="stat-last-id">—</div>
           </div>
           <div class="stat-item">
-            <div class="stat-label">Latest Case</div>
-            <div class="stat-value" id="stat-latest-case" style="font-size:13px; line-height:1.3;">—</div>
+            <div class="stat-label">Latest Case (highest ID)</div>
+            <div class="stat-value" id="stat-latest-case" style="font-size:12px; line-height:1.3;">—</div>
+          </div>
+          <div class="stat-item">
+            <div class="stat-label">Oldest Case (lowest ID)</div>
+            <div class="stat-value" id="stat-oldest-case" style="font-size:12px; line-height:1.3;">—</div>
           </div>
           <div class="stat-item">
             <div class="stat-label">Total Cases</div>
@@ -864,27 +868,19 @@ export function getDashboardHtml(status: {
       const lastIdEl = document.getElementById('stat-last-id');
       const caseEl = document.getElementById('stat-latest-case');
       const totalEl = document.getElementById('stat-total-cases');
+      const oldestEl = document.getElementById('stat-oldest-case');
       try {
-        const resp = await fetch('/admin/status', { credentials: 'same-origin' });
+        const resp = await fetch('/admin/dashboard/scraper-stats', { credentials: 'same-origin' });
         if (resp.ok) {
-          const data = await resp.json();
-          if (totalEl) totalEl.textContent = data.total_cases ?? '—';
-        }
-      } catch {}
-      try {
-        const resp = await fetch('/admin/seen-cases?limit=1', { credentials: 'same-origin' });
-        if (resp.ok) {
-          const data = await resp.json();
-          if (data.cases?.[0]) {
-            const c = data.cases[0];
-            if (lastIdEl) {
-              // Extract ERA ID from case_url (e.g. /determination/view/21324)
-              const urlParts = c.case_url.split('/');
-              const lastSegment = urlParts[urlParts.length - 1];
-              lastIdEl.textContent = /^\d+$/.test(lastSegment) ? lastSegment : '—';
-            }
-            if (caseEl) caseEl.textContent = c.title?.substring(0, 60) + (c.title?.length > 60 ? '…' : '') || '—';
-          }
+          const d = await resp.json();
+          if (lastIdEl) lastIdEl.textContent = d.last_era_id ?? '—';
+          if (caseEl) caseEl.textContent = d.latest
+            ? (d.latest.title?.substring(0, 55) || '—') + ' · ID ' + (d.latest.era_id || d.latest.pdf_filename?.replace('.pdf','') || '—')
+            : '—';
+          if (oldestEl) oldestEl.textContent = d.oldest
+            ? (d.oldest.title?.substring(0, 55) || '—') + ' · ID ' + (d.oldest.era_id || d.oldest.pdf_filename?.replace('.pdf','') || '—')
+            : '—';
+          if (totalEl) totalEl.textContent = d.total_cases ?? '—';
         }
       } catch {}
     }

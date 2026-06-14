@@ -470,15 +470,17 @@ export default {
       try {
         const formData = await request.formData();
         const paused = (formData.get('paused') ?? '0') === '1' ? '1' : '0';
-        await env.DB.prepare('INSERT OR REPLACE INTO config (key, value) VALUES (?, ?)')
+        await env.DB.prepare('INSERT OR REPLACE INTO config (key, value, updated_at) VALUES (?, ?, datetime(\'now\'))')
           .bind('system_paused', paused)
           .run();
-        return new Response('', { status: 302, headers: { Location: '/admin' } });
+        return new Response('', {
+          status: 302,
+          headers: { Location: '/admin' },
+        });
       } catch (err) {
-        return new Response(`Error: ${String(err)}`, { status: 500 });
+        return new Response(JSON.stringify({ error: String(err) }), { status: 500 });
       }
     }
-
     // POST /admin/upload-ec-case — Upload EC PDF
     // Supports two modes:
     //   1. Raw binary body (Content-Type: application/pdf) with ?filename=... query param
@@ -1570,6 +1572,40 @@ Rules:
       }
     }
 
+    // GET /admin/dashboard/scraper-stats — Scraper tab stats (cookie auth)
+    if (request.method === 'GET' && url.pathname === '/admin/dashboard/scraper-stats') {
+      const session = getAdminCookie(request);
+      if (session !== env.ADMIN_SECRET) {
+        return new Response('Unauthorized', { status: 401 });
+      }
+      try {
+        const [latestCase, oldestCase, stats] = await Promise.all([
+          env.DB.prepare("SELECT title, case_url, pdf_filename FROM seen_cases WHERE source='ERA' ORDER BY processed_at DESC LIMIT 1").first<{title: string; case_url: string; pdf_filename: string}>(),
+          env.DB.prepare("SELECT title, case_url, pdf_filename FROM seen_cases WHERE source='ERA' ORDER BY processed_at ASC LIMIT 1").first<{title: string; case_url: string; pdf_filename: string}>(),
+          getCaseStatistics(env.DB),
+        ]);
+        const lastIdRaw = await getConfig(env.DB, 'last_era_id');
+        return jsonResponse({
+          latest: latestCase ? {
+            title: latestCase.title,
+            pdf_filename: latestCase.pdf_filename,
+            era_id: latestCase.case_url?.match(/\/view\/(\d+)/)?.[1] || null,
+          } : null,
+          oldest: oldestCase ? {
+            title: oldestCase.title,
+            pdf_filename: oldestCase.pdf_filename,
+            era_id: oldestCase.case_url?.match(/\/view\/(\d+)/)?.[1] || null,
+          } : null,
+          last_era_id: lastIdRaw ? parseInt(lastIdRaw, 10) : null,
+          total_cases: stats.total,
+          era_cases: stats.era,
+          ec_cases: stats.ec,
+        });
+      } catch (err) {
+        return jsonResponse({ error: String(err) }, 500);
+      }
+    }
+
     // ══════════════════════════════════════════════════════════════════════════
     // ADMIN API ROUTES (Bearer token required)
     // ══════════════════════════════════════════════════════════════════════════
@@ -1764,7 +1800,7 @@ Rules:
       try {
         const body = await request.json() as { paused?: boolean };
         const paused = body.paused === true ? '1' : '0';
-        await env.DB.prepare('INSERT OR REPLACE INTO config (key, value) VALUES (?, ?)')
+        await env.DB.prepare('INSERT OR REPLACE INTO config (key, value, updated_at) VALUES (?, ?, datetime(\'now\'))')
           .bind('system_paused', paused)
           .run();
         return jsonResponse({ success: true, is_paused: paused === '1' });
