@@ -69,5 +69,12 @@
     "TRIGGER_MODE": "scheduled",
     "SITE_URL": "https://whenroutinebiteshard.com",
     "CRON_SCHEDULE": "Daily at 8am NZT (dual cron for DST)"
+  },
+
+  // ── Observability ─────────────────────────────────────────────────────────────
+  // Enables Workers Observability (logs, metrics, traces) in the Cloudflare dashboard.
+  // View at: https://dash.cloudflare.com/?to=/:account/workers-and-pages/observability
+  "observability": {
+    "enabled": true
   }
 }
