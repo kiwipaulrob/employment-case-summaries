@@ -932,6 +932,23 @@ export default {
                 "INSERT OR REPLACE INTO config (key, value, updated_at) VALUES ('last_error', ?, datetime('now'))"
               ).bind(lastError.substring(0, 500)).run();
             } catch (_) {}
+
+            // Mark unreadable cases as seen so they don't block future runs
+            const errStr = String(err);
+            if (errStr.includes('insufficient content') || errStr.includes('404') || errStr.includes('unreachable')) {
+              try {
+                const fallbackCase: ProcessedCase = {
+                  caseId: c.caseId, title: c.title, caseUrl: c.caseUrl,
+                  pdfUrl: c.pdfUrl, member: c.member, datePublished: c.datePublished,
+                  category: c.category, source: 'ERA',
+                  summary: `Summary unavailable — the determination text could not be extracted from the PDF. [View determination](${c.caseUrl})`,
+                  processedAt: new Date().toISOString(),
+                };
+                await markCaseSeen(env.DB, fallbackCase, 'ERA');
+                console.warn(`ERA Backfill: marked ${c.caseId} as seen (unreadable PDF)`);
+              } catch (_) {}
+            }
+
             failed++;
           }
         }
