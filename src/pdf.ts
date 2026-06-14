@@ -144,11 +144,18 @@ async function fetchPdfViaSidecar(pdfUrl: string): Promise<PdfContent> {
   console.log(`[pdf] Sidecar: fetched ${Math.round(bytes.byteLength / 1024)} KB`);
 
   // Step 2: POST bytes to the pdfminer.six sidecar via Cloudflare Tunnel
-  const sidecarResponse = await fetch(SIDECAR_URL, {
-    method: 'POST',
-    body: bytes,
-    signal: AbortSignal.timeout(30_000),
-  });
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 60_000);
+  let sidecarResponse: Response;
+  try {
+    sidecarResponse = await fetch(SIDECAR_URL, {
+      method: 'POST',
+      body: bytes,
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(timeoutId);
+  }
 
   const result = await sidecarResponse.json() as {
     success: boolean;
