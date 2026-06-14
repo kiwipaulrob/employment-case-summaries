@@ -868,37 +868,36 @@ export default {
       try {
         const pages = Math.min(Math.max(parseInt(url.searchParams.get('pages') ?? '3', 10), 1), 5);
 
-        // Respond immediately, process in background
-        ctx.waitUntil((async () => {
-          console.log(`ERA Backfill: scraping ${pages} page(s) of ERA listings`);
+        console.log(`ERA Backfill: scraping ${pages} page(s) of ERA listings`);
 
-          const allScraped = await scrapeAllPages(pages, env.SOURCE_URL);
-          console.log(`ERA Backfill: ${allScraped.length} unique cases scraped across ${pages} page(s)`);
+        const allScraped = await scrapeAllPages(pages, env.SOURCE_URL);
+        console.log(`ERA Backfill: ${allScraped.length} unique cases scraped across ${pages} page(s)`);
 
-          const newCases = await filterNewCases(env.DB, allScraped);
-          console.log(`ERA Backfill: ${newCases.length} new (unseen) cases to process`);
+        const newCases = await filterNewCases(env.DB, allScraped);
+        console.log(`ERA Backfill: ${newCases.length} new (unseen) cases to process`);
 
-          // Process at most 3 cases per invocation to stay within time limits
-          const batch = newCases.slice(0, 3);
-          let processed = 0;
-          let failed = 0;
+        // Process at most 1 case synchronously (stay within Worker time limits)
+        const batch = newCases.slice(0, 1);
+        let processed = 0;
+        let failed = 0;
+        let lastError: string | null = null;
 
-          for (const c of batch) {
-            console.log(`ERA Backfill: processing ${c.caseId} — ${c.title}`);
-            try {
-              if (!c.pdfUrl) {
-                console.warn(`ERA Backfill: skipping ${c.caseId} — no PDF URL`);
-                failed++;
-                continue;
-              }
+        for (const c of batch) {
+          console.log(`ERA Backfill: processing ${c.caseId} — ${c.title}`);
+          try {
+            if (!c.pdfUrl) {
+              console.warn(`ERA Backfill: skipping ${c.caseId} — no PDF URL`);
+              failed++;
+              continue;
+            }
 
-              const pdfContent = await getPdfContent(c.pdfUrl);
-              const summaryResult = await summariseCase(c, pdfContent, env.OPENROUTER_API_KEY, env.OPENROUTER_MODEL, env.DB);
-              if (!summaryResult.success) {
-                console.warn(`ERA Backfill: summarisation failed for ${c.caseId}`);
-                failed++;
-                continue;
-              }
+            const pdfContent = await getPdfContent(c.pdfUrl);
+            const summaryResult = await summariseCase(c, pdfContent, env.OPENROUTER_API_KEY, env.OPENROUTER_MODEL, env.DB);
+            if (!summaryResult.success) {
+              console.warn(`ERA Backfill: summarisation failed for ${c.caseId}`);
+              failed++;
+              continue;
+            }
 
             // Strip AWARDS_DATA block before storing
             const { awardsData, strippedSummary } = parseAwardsBlock(summaryResult.summary);
@@ -926,26 +925,31 @@ export default {
             processed++;
             console.log(`ERA Backfill: stored ${c.caseId} (${betterTitle || c.title})`);
           } catch (err) {
-            const errMsg = `ERA Backfill: error processing ${c.caseId}: ${err}`;
-            console.error(errMsg);
-            // Store last error for admin visibility
+            lastError = `ERA Backfill: error processing ${c.caseId}: ${err}`;
+            console.error(lastError);
             try {
               await env.DB.prepare(
                 "INSERT OR REPLACE INTO config (key, value, updated_at) VALUES ('last_error', ?, datetime('now'))"
-              ).bind(errMsg.substring(0, 500)).run();
+              ).bind(lastError.substring(0, 500)).run();
             } catch (_) {}
             failed++;
           }
         }
 
-        console.log(`ERA Backfill done`);
-      })());
-
-      // Return immediately — processing happens in background
-      return jsonResponse({
-        success: true,
-        message: `Started backfill (${pages} page(s)). Processing runs in background — check seen-cases in a few minutes.`,
-      });
+        console.log(`ERA Backfill done: ${processed} processed, ${failed} failed`);
+        return jsonResponse({
+          success: true,
+          pages_scraped: pages,
+          found: allScraped.length,
+          new_cases: newCases.length,
+          processed,
+          failed,
+          message: processed > 0
+            ? `Processed ${processed} case(s).`
+            : newCases.length === 0
+              ? `No new cases found — all ${allScraped.length} cases already in DB.`
+              : `Processed 0 (${failed} failed) — try pages=1 and check /diag for errors.`,
+        });
       } catch (err) {
         console.error(`ERA Backfill error: ${err}`);
         return jsonResponse({ success: false, error: String(err) }, 500);
