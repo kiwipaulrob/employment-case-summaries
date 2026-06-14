@@ -926,7 +926,14 @@ export default {
             processed++;
             console.log(`ERA Backfill: stored ${c.caseId} (${betterTitle || c.title})`);
           } catch (err) {
-            console.error(`ERA Backfill: error processing ${c.caseId}: ${err}`);
+            const errMsg = `ERA Backfill: error processing ${c.caseId}: ${err}`;
+            console.error(errMsg);
+            // Store last error for admin visibility
+            try {
+              await env.DB.prepare(
+                "INSERT OR REPLACE INTO config (key, value, updated_at) VALUES ('last_error', ?, datetime('now'))"
+              ).bind(errMsg.substring(0, 500)).run();
+            } catch (_) {}
             failed++;
           }
         }
