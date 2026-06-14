@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html>
+<head><meta charset="UTF-8"><title>Digest Controls Tab - Redesign v2</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; font-family:-apple-system,sans-serif; }
+  body { background:#efefef; display:flex; justify-content:center; padding:40px; }
+  .phone { max-width:860px; width:100%; background:white; border-radius:12px; box-shadow:0 4px 24px rgba(0,0,0,0.12); overflow:hidden; }
+  .header { background:#4f6f52; color:white; padding:18px 24px; font-weight:600; font-size:18px; display:flex; justify-content:space-between; }
+  .tabs { display:flex; gap:2px; background:#ddd; padding:0; }
+  .tabs div { flex:1; padding:12px 8px; text-align:center; font-size:12px; background:#f5f5f5; color:#888; }
+  .tabs .active { background:white; color:#4f6f52; font-weight:600; border-bottom:3px solid #4f6f52; }
+  .content { padding:24px; }
+  .section { background:#f9f9f9; border:1px solid #e0e0e0; border-radius:8px; padding:20px; margin-bottom:20px; }
+  .section-title { font-weight:600; font-size:15px; margin-bottom:12px; color:#333; display:flex; justify-content:space-between; align-items:center; }
+  .stat-row { display:flex; gap:12px; margin-bottom:12px; }
+  .stat-box { flex:1; background:white; border:1px solid #e0e0e0; border-radius:6px; padding:12px; }
+  .stat-label { font-size:11px; color:#888; }
+  .stat-value { font-size:18px; font-weight:700; color:#4f6f52; }
+  .field { margin-bottom:14px; }
+  .field label { display:block; font-size:12px; font-weight:500; color:#555; margin-bottom:4px; }
+  .field input, .field textarea, .field select { width:100%; padding:10px 12px; border:1px solid #ccc; border-radius:6px; font-size:14px; font-family:inherit; }
+  .field textarea { min-height:80px; resize:vertical; }
+  .field .inline { display:flex; gap:10px; align-items:center; }
+  .field .inline input { flex:1; }
+  .field .inline span { color:#888; font-size:13px; white-space:nowrap; }
+  .btn { background:#4f6f52; color:white; border:none; padding:10px 20px; border-radius:6px; font-size:14px; cursor:pointer; }
+  .btn:hover { background:#3d5640; }
+  .btn-sm { padding:8px 14px; font-size:12px; }
+  .btn-secondary { background:#ff7f50; }
+  .btn-secondary:hover { background:#e56a3a; }
+  .btn-outline { background:white; color:#4f6f52; border:1px solid #4f6f52; }
+  .tag { display:inline-block; background:#e8f0e8; color:#4f6f52; font-size:11px; padding:2px 8px; border-radius:4px; margin:2px; }
+  .status-box { padding:14px; border-radius:6px; font-size:13px; }
+  .status-running { background:#efe; border:1px solid #cfc; color:#060; }
+  .status-paused { background:#fff3cd; border:1px solid #ffc107; color:#856404; }
+  .case-row { display:flex; justify-content:space-between; align-items:center; padding:8px 10px; background:white; border:1px solid #e0e0e0; border-radius:4px; margin-bottom:6px; }
+  .case-row .case-name { font-size:13px; flex:1; }
+  .case-row .case-id { font-size:11px; color:#888; margin-left:8px; white-space:nowrap; }
+  .case-row .pill { font-size:10px; background:#e8f0e8; padding:2px 8px; border-radius:10px; }
+  hr { border:none; border-top:1px solid #e0e0e0; margin:20px 0; }
+  .template-tag { display:inline-block; background:#e8f0e8; color:#4f6f52; font-size:11px; padding:2px 6px; border-radius:3px; cursor:pointer; font-family:monospace; }
+  .template-tag:hover { background:#d0e0d0; }
+  .badge-new { font-size:10px; background:#4f6f52; color:white; padding:2px 8px; border-radius:10px; }
+  .oneoff-badge { font-size:10px; background:#ff7f50; color:white; padding:2px 8px; border-radius:10px; margin-left:6px; }
+  .info-note { font-size:11px; color:#888; margin-top:4px; }
+</style>
+</head>
+<body>
+<div class="phone">
+  <div class="header"><span>ERA Admin Dashboard</span><span style="font-size:13px;opacity:0.8;">📋 Digest Controls</span></div>
+  <div class="tabs">
+    <div class="active">📋 Digest</div>
+    <div>EC Upload</div>
+    <div>Subscribers</div>
+    <div>📡 Scraper</div>
+    <div>Analytics</div>
+    <div>Prompts</div>
+    <div>Diagnostics</div>
+    <div>Errors</div>
+  </div>
+  <div class="content">
+
+    <!-- Section 1: Cron Control -->
+    <div class="section">
+      <div class="section-title">
+        <span>⏰ Cron Schedule</span>
+        <span class="badge-new">Active</span>
+      </div>
+      <div class="status-box status-running" style="margin-bottom:14px;">
+        <strong>🟢 System Running</strong> — Daily at 8:00 AM NZT (next: 15 Jun 2026, 8:00 AM NZT)
+      </div>
+      <div class="field">
+        <div class="inline">
+          <div style="flex:1;">
+            <label>Cron Expression</label>
+            <input type="text" value="0 20 * * *" placeholder="0 20 * * *">
+          </div>
+          <div style="flex:1;">
+            <label>Timezone</label>
+            <input type="text" value="Pacific/Auckland" disabled style="background:#f5f5f5;">
+          </div>
+          <div style="padding-top:22px;">
+            <button class="btn btn-sm btn-secondary">Stop Cron</button>
+          </div>
+        </div>
+      </div>
+      <p style="font-size:11px;color:#888;">Uses dual cron expression for DST — edit in wrangler.jsonc + deploy to change permanent schedule</p>
+    </div>
+
+    <!-- Section 2: Latest Cases & Range Control -->
+    <div class="section">
+      <div class="section-title">📬 Digest State & Range</div>
+
+      <div style="display:flex; gap:10px; margin-bottom:16px;">
+        <div style="flex:1; background:white; border:1px solid #e0e0e0; border-radius:6px; padding:12px;">
+          <div style="font-size:11px;color:#888;">Latest Case <strong>Sent</strong></div>
+          <div style="font-size:13px;font-weight:600;color:#333;margin-top:4px;">Selwyn McDonald v Traffica Roading Services Ltd</div>
+          <div style="font-size:11px;color:#888;margin-top:2px;">ERA ID: 21320 · Sent: 14 Jun 2026</div>
+        </div>
+        <div style="flex:1; background:white; border:1px solid #e0e0e0; border-radius:6px; padding:12px;">
+          <div style="font-size:11px;color:#888;">Latest Case <strong>Available</strong> (highest ID)</div>
+          <div style="font-size:13px;font-weight:600;color:#333;margin-top:4px;">Debbie Watkins v Tautoko Mai Sexual Harm Support</div>
+          <div style="font-size:11px;color:#888;margin-top:2px;">ERA ID: 21324</div>
+        </div>
+      </div>
+
+      <div class="section-title" style="margin-top:16px;">🎯 Next Digest Range</div>
+      <p style="font-size:12px;color:#666;margin-bottom:12px;">Controls which cases the next email includes. New cases found by the daily probe append automatically.</p>
+      <div class="field">
+        <div class="inline">
+          <div style="flex:1;">
+            <label>Include from ERA ID</label>
+            <input type="number" value="21321" placeholder="e.g. 21320">
+          </div>
+          <div style="flex:1;">
+            <label>Max cases</label>
+            <input type="number" value="10" min="1" max="50">
+          </div>
+          <div style="padding-top:22px;">
+            <button class="btn btn-sm">Apply Range</button>
+          </div>
+        </div>
+      </div>
+      <p style="font-size:11px;color:#888;">Override applies to the <strong>next single run</strong> only, then resets to auto. Cases with ID >= start value are included.</p>
+    </div>
+
+    <!-- Section 3: Preview Next Digest -->
+    <div class="section">
+      <div class="section-title">
+        <span>👁️ Preview — Cases for Next Email</span>
+        <span>
+          <button class="btn btn-sm btn-outline" style="margin-right:6px;">Refresh</button>
+          <button class="btn btn-sm">Send Now</button>
+        </span>
+      </div>
+
+      <div class="case-row">
+        <span class="case-name">Selwyn McDonald v Traffica Roading Services Limited</span>
+        <span class="case-id">ID 21320</span>
+        <span class="pill">New</span>
+      </div>
+      <div class="case-row">
+        <span class="case-name">Debbie Watkins v Tautoko Mai Sexual Harm Support Services</span>
+        <span class="case-id">ID 21322</span>
+        <span class="pill">New</span>
+      </div>
+      <div class="case-row">
+        <span class="case-name">Macfarlane Seymour v Hilton Haulage Limited</span>
+        <span class="case-id">ID 21321</span>
+        <span class="pill">New</span>
+      </div>
+      <div class="case-row">
+        <span class="case-name">Claudia Moreira & Anor v Renew Wellness Place Limited</span>
+        <span class="case-id">ID 21317</span>
+        <span class="pill" style="background:#f0f0f0;color:#888;">Seen</span>
+      </div>
+
+      <p style="font-size:12px;color:#999;margin-top:10px;">Showing 4 cases — 3 unseen, 1 already sent. Range: IDs 21310–21330 | Max: 10 cases</p>
+    </div>
+
+    <!-- Section 4: Email Customization -->
+    <div class="section">
+      <div class="section-title">✏️ Email Templates</div>
+      <p style="font-size:12px;color:#666;margin-bottom:14px;">
+        Use template variables: 
+        <span class="template-tag" onclick="">{num_cases}</span> — number of cases in this digest
+        <span class="template-tag" onclick="">{date}</span> — today's date
+        <span class="template-tag" onclick="">{id_first}</span> — first case ID in digest
+        <span class="template-tag" onclick="">{id_last}</span> — last case ID in digest
+      </p>
+
+      <div class="field">
+        <label>Email Subject Line</label>
+        <input type="text" value="ERA Digest — {num_cases} new cases ({date})">
+        <p class="info-note">Default: <code>ERA Digest — {num_cases} new cases ({date})</code></p>
+      </div>
+
+      <div class="field" style="display:flex; gap:12px;">
+        <div style="flex:1;">
+          <label>
+            Default Banner Message
+            <span style="font-weight:400;font-size:11px;color:#888;"> (shown every digest)</span>
+          </label>
+          <textarea style="min-height:70px;">ERA determinations for {date}. {num_cases} case(s) covered in this update.</textarea>
+        </div>
+        <div style="flex:1;">
+          <label>
+            One-off Banner
+            <span class="oneoff-badge">next run only</span>
+          </label>
+          <textarea style="min-height:70px;border-color:#ff7f50;" placeholder="Leave blank to use default banner above">Case annotations have been updated with contribution and penalty data. {num_cases} cases in this digest.</textarea>
+        </div>
+      </div>
+      <div style="font-size:11px;color:#888;margin-bottom:14px;">
+        Default banner persists across all digests. One-off replaces default for the <strong>next send only</strong>, then resets.
+      </div>
+
+      <div class="field" style="display:flex; gap:12px;">
+        <div style="flex:1;">
+          <label>
+            Default Footer
+            <span style="font-weight:400;font-size:11px;color:#888;"> (standard)</span>
+          </label>
+          <textarea style="min-height:60px;">You received this because you subscribed at whenroutinebiteshard.com. Unsubscribe or manage preferences.</textarea>
+        </div>
+        <div style="flex:1;">
+          <label>
+            One-off Footer
+            <span class="oneoff-badge">next run only</span>
+          </label>
+          <textarea style="min-height:60px;border-color:#ff7f50;" placeholder="Leave blank to use default footer"></textarea>
+        </div>
+      </div>
+
+      <div style="display:flex; gap:10px; margin-top:16px;">
+        <button class="btn">Save Defaults</button>
+        <button class="btn btn-secondary">Send One-Off Now</button>
+        <button class="btn btn-outline" style="margin-left:auto;">Reset to Defaults</button>
+      </div>
+    </div>
+
+  </div>
+</div>
+</body>
+</html>

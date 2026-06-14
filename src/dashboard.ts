@@ -878,8 +878,10 @@ export function getDashboardHtml(status: {
           if (data.cases?.[0]) {
             const c = data.cases[0];
             if (lastIdEl) {
-              const idMatch = c.case_url?.match(/\/view\/(\d+)/);
-              lastIdEl.textContent = idMatch ? idMatch[1] : '—';
+              // Extract ERA ID from case_url (e.g. /determination/view/21324)
+              const urlParts = c.case_url.split('/');
+              const lastSegment = urlParts[urlParts.length - 1];
+              lastIdEl.textContent = /^\d+$/.test(lastSegment) ? lastSegment : '—';
             }
             if (caseEl) caseEl.textContent = c.title?.substring(0, 60) + (c.title?.length > 60 ? '…' : '') || '—';
           }
