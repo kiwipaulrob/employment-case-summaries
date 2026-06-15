@@ -255,7 +255,7 @@ const BASE_CSS = `
     line-height: 1.6;
   }
   .case-card-links { font-size: 13px; margin-top: 14px; }
-  .case-card-links a { margin-right: 16px; font-weight: 500; }
+  .case-card-links a { margin-right: 16px; font-weight: 500; font-family: inherit; }
 
   /* Expandable summary */
   details.case-expand { margin-top: 8px; }
@@ -411,6 +411,10 @@ function shell(title: string, body: string, extraCss = ''): string {
       <span class="site-name">ERA Digest</span>
     </a>
     <span class="site-tagline">NZ Employment Law Determinations</span>
+    <nav style="margin-left:auto;display:flex;gap:16px;font-size:14px;">
+      <a href="/" style="color:#fff;text-decoration:none;">Cases</a>
+      <a href="/awards" style="color:#fff;text-decoration:none;">Awards</a>
+    </nav>
   </div>
 </header>
 ${body}
@@ -542,16 +546,6 @@ ${paginationNav}` : '';
           <label for="email">Email address</label>
           <input type="email" id="email" name="email" value="${emailVal}" required autocomplete="email" placeholder="you@example.com">
           <div class="form-hint">One email per day, only when new cases are published. Unsubscribe any time.</div>
-        </div>
-        <div class="form-row pref-row">
-          <label class="filter-check">
-            <input type="checkbox" name="show_costs" value="1"${prefill?.show_costs ? ' checked' : ''}>
-            Include costs decisions
-          </label>
-          <label class="filter-check">
-            <input type="checkbox" name="show_consent" value="1"${prefill?.show_consent ? ' checked' : ''}>
-            Include consent orders
-          </label>
         </div>
         <button type="submit" class="btn-primary">Subscribe &rarr;</button>
       </form>

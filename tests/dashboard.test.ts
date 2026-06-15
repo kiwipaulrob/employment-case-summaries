@@ -136,10 +136,11 @@ describe('dashboard HTML generation', () => {
       'prompts',
       'scraper',
       'diagnostics',
-      'errors',
     ];
     for (const tab of expectedTabs) {
       expect(html).toContain(`id="${tab}"`);
     }
+    // Error log is now inside diagnostics tab, not a separate tab
+    expect(html).toContain('id="error-log-container"');
   });
 });

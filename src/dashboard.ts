@@ -301,8 +301,7 @@ export function getDashboardHtml(status: {
       <button class="tab-btn" type="button" onclick="switchTab(event, 'prompts')">Prompts</button>
       <button class="tab-btn" type="button" onclick="switchTab(event, 'rescan')">Rescan</button>
       <button class="tab-btn" type="button" onclick="switchTab(event, 'scraper')">📡 ERA Scraper</button>
-      <button class="tab-btn" type="button" onclick="switchTab(event, 'diagnostics')">Diagnostics</button>
-      <button class="tab-btn" type="button" onclick="switchTab(event, 'errors')">Error Log</button>
+      <button class="tab-btn" type="button" onclick="switchTab(event, 'diagnostics')">🔧 Diagnostics & Errors</button>
     </div>
 
     <!-- Digest Controls Tab -->
@@ -539,8 +538,12 @@ export function getDashboardHtml(status: {
     <!-- Diagnostics Tab -->
     <div id="diagnostics" class="tab-content">
       <div class="card">
-        <div class="card-title">System Diagnostics</div>
-        <p style="color: #666; margin-bottom: 1.5rem;">Click a test button below. Results appear inline beneath each test. The button shows "⏳ Running..." while the test executes.</p>
+        <div class="card-title">🔧 System Diagnostics</div>
+        <p style="color: #666; margin-bottom: 1.5rem;">
+          Click a test button below. Results appear inline beneath each test.
+          Use <strong>▶ Run All Tests</strong> to run the full suite.
+          The error log at the bottom shows recent pipeline errors — click <strong>Refresh</strong> to load.
+        </p>
 
         <div style="display: flex; flex-direction: column; gap: 1rem;">
 
@@ -621,6 +624,23 @@ export function getDashboardHtml(status: {
             <div id="diag-all-result" style="margin-top: 0.5rem; font-size: 13px;"></div>
           </div>
 
+        </div>
+      </div>
+
+      <!-- Error Log (inline within Diagnostics) -->
+      <div class="card">
+        <div class="card-title" style="display: flex; justify-content: space-between; align-items: center;">
+          <span>📋 Error Log</span>
+          <span style="font-size: 0.85rem; color: #666;">
+            <span id="error-loading" class="spinner" style="display:none;"></span>
+            <button class="button" style="padding: 0.4rem 1rem; font-size: 0.85rem;" onclick="loadErrors()">Refresh</button>
+          </span>
+        </div>
+        <p style="color: #666; margin-bottom: 1.5rem; font-size: 0.9rem;">
+          Recent pipeline and system errors. Shows up to 50 most recent entries.
+        </p>
+        <div id="error-log-container">
+          <p style="color: #999;">Load errors by clicking "Refresh" or opening this tab.</p>
         </div>
       </div>
     </div>
@@ -712,25 +732,6 @@ export function getDashboardHtml(status: {
         <div id="era-upload-status" class="upload-status" style="margin-top:12px;"></div>
       </div>
     </div>
-
-    <!-- Error Log Tab -->
-    <div id="errors" class="tab-content">
-      <div class="card">
-        <div class="card-title" style="display: flex; justify-content: space-between; align-items: center;">
-          <span>Error Log</span>
-          <span style="font-size: 0.85rem; color: #666;">
-            <span id="error-loading" class="spinner" style="display:none;"></span>
-            <button class="button" style="padding: 0.4rem 1rem; font-size: 0.85rem;" onclick="loadErrors()">Refresh</button>
-          </span>
-        </div>
-        <p style="color: #666; margin-bottom: 1.5rem; font-size: 0.9rem;">
-          Recent pipeline and system errors. Shows up to 50 most recent entries.
-        </p>
-        <div id="error-log-container">
-          <p style="color: #999;">Load errors by clicking "Refresh" or opening this tab.</p>
-        </div>
-      </div>
-    </div>
   </div>
 
   <script>
@@ -742,7 +743,7 @@ export function getDashboardHtml(status: {
       if (tab) tab.classList.add('active');
       event.target.classList.add('active');
       // Auto-load content when specific tabs are opened
-      if (tabName === 'errors') loadErrors();
+      if (tabName === 'diagnostics') { loadErrors(); }
       if (tabName === 'scraper') loadScraperStats();
       if (tabName === 'digest') { loadDigestConfig(); loadDigestPreview(); }
       if (tabName === 'prompts') loadPrompts();
@@ -1408,7 +1409,7 @@ export function getDashboardHtml(status: {
       const originalText = btn.textContent;
       btn.textContent = '⏳ Running...';
       btn.disabled = true;
-      resultEl.innerHTML = '';
+      resultEl.innerHTML = '<p style="color:#999;">Running test...</p>';
       resultEl.style.color = '#666';
 
       try {
@@ -1444,8 +1445,12 @@ export function getDashboardHtml(status: {
         resultEl.innerHTML = '❌ Error: ' + err.message;
       }
 
-      btn.textContent = originalText;
+      // Show pass/fail badge on button
+      const passed = data.summary?.fail === 0;
+      btn.textContent = (passed ? '✅ ' : '❌ ') + originalText;
+      btn.style.background = passed ? '#4f6f52' : '#c0392b';
       btn.disabled = false;
+      setTimeout(() => { btn.textContent = originalText; btn.style.background = ''; }, 4000);
     }
 
     function renderDiagResults(container, data) {
