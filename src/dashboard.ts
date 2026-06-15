@@ -1108,6 +1108,11 @@ export function getDashboardHtml(status: {
       status.textContent = '⏳ Probing ERA IDs ' + start + '–' + end + '...';
       try {
         const resp = await fetch('/admin/dashboard/scrape-id-range?start_id=' + start + '&end_id=' + end, { credentials: 'same-origin' });
+        if (resp.status === 401) {
+          status.className = 'upload-status show alert alert-error';
+          status.innerHTML = '🔑 Session expired. <a href="/admin" style="color:#c00;">Please log in again</a>.';
+          btn.disabled = false; btn.textContent = 'Scrape'; return;
+        }
         const data = await resp.json();
         if (data.success) {
           const parts = [];
@@ -1151,6 +1156,11 @@ export function getDashboardHtml(status: {
         if (dateTo) params.push('date_to=' + encodeURIComponent(dateTo));
         if (params.length) url += '?' + params.join('&');
         const resp = await fetch(url, { credentials: 'same-origin' });
+        if (resp.status === 401) {
+          status.className = 'upload-status show alert alert-error';
+          status.innerHTML = '🔑 Session expired. <a href="/admin" style="color:#c00;">Please log in again</a>.';
+          btn.disabled = false; btn.textContent = 'Scrape'; return;
+        }
         const data = await resp.json();
         if (data.success) {
           const parts = [];
@@ -1187,6 +1197,11 @@ export function getDashboardHtml(status: {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ pdfUrl }),
         });
+        if (resp.status === 401) {
+          status.className = 'upload-status show alert alert-error';
+          status.innerHTML = '🔑 Session expired. <a href="/admin" style="color:#c00;">Please log in again</a>.';
+          btn.disabled = false; btn.textContent = 'Summarise'; return;
+        }
         const data = await resp.json();
         if (data.success) {
           status.className = 'upload-status show alert alert-success';
