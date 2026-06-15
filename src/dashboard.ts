@@ -739,6 +739,8 @@ export function getDashboardHtml(status: {
   </div>
 
   <script>
+    function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
     function switchTab(event, tabName) {
       event.preventDefault();
       document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
@@ -1287,8 +1289,6 @@ export function getDashboardHtml(status: {
           container.innerHTML = '<p style="color: #999; text-align: center; padding: 2rem;">No errors logged yet — the pipeline is running clean.</p>';
           return;
         }
-        // Browser-safe HTML escape
-        function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
         let html = '<table style="width:100%; border-collapse: collapse; font-size: 0.9rem;">';
         html += '<thead><tr style="background: #f5f5f5;">';
         html += '<th style="padding: 0.6rem; text-align: left; border-bottom: 2px solid #ddd;">Time</th>';
