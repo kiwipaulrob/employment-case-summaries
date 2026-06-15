@@ -443,7 +443,9 @@ export function homePage(
     .map(c => {
       const title = toTitleCase(decodeHtmlEntities(c.title));
       const member = c.member ? decodeHtmlEntities(c.member) : null;
-      const meta = [member, c.date_published].filter(Boolean).join(' \u00b7 ');
+      // Extract ERA website ID from case_url (e.g. /determination/view/21324)
+      const eraId = c.case_url?.match(/\/view\/(\d+)/)?.[1] || c.pdf_filename?.replace(/\.pdf$/i, '')?.match(/\d+$/)?.[0] || null;
+      const meta = [member, c.date_published, eraId ? `ERA ID: ${eraId}` : null].filter(Boolean).join(' \u00b7 ');
       const excerpt = getSummaryExcerpt(c.summary ?? '', 240);
       const fullHtml = summaryToPageHtml(c.summary ?? '');
       const pdfLink = c.pdf_url

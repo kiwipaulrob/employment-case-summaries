@@ -1245,6 +1245,7 @@ Rules:
         return jsonResponse({
           success: true, probed: probeCount, found: allCases.length, new: newCases.length,
           processed, failed, last_error: lastError,
+          cases: allCases.map(c => ({ title: c.title, era_id: c.caseId })),
           message: processed > 0
             ? `Processed ${processed} case(s). ${failed > 0 ? `${failed} failed.` : ''}`
             : newCases.length > 0 ? `Found ${newCases.length} new case(s) but none processed.` : 'No new cases found.',
@@ -1586,8 +1587,8 @@ Rules:
       }
       try {
         const [latestCase, oldestCase, stats] = await Promise.all([
-          env.DB.prepare("SELECT title, case_url, pdf_filename FROM seen_cases WHERE source='ERA' ORDER BY processed_at DESC LIMIT 1").first<{title: string; case_url: string; pdf_filename: string}>(),
-          env.DB.prepare("SELECT title, case_url, pdf_filename FROM seen_cases WHERE source='ERA' ORDER BY processed_at ASC LIMIT 1").first<{title: string; case_url: string; pdf_filename: string}>(),
+          env.DB.prepare("SELECT title, case_url, pdf_filename FROM seen_cases WHERE source='ERA' ORDER BY pdf_filename DESC LIMIT 1").first<{title: string; case_url: string; pdf_filename: string}>(),
+          env.DB.prepare("SELECT title, case_url, pdf_filename FROM seen_cases WHERE source='ERA' ORDER BY pdf_filename ASC LIMIT 1").first<{title: string; case_url: string; pdf_filename: string}>(),
           getCaseStatistics(env.DB),
         ]);
         const lastIdRaw = await getConfig(env.DB, 'last_era_id');
@@ -1624,10 +1625,10 @@ Rules:
           getConfig(env.DB, 'email_footer_onetime'),
           getConfig(env.DB, 'digest_range_start'),
           getConfig(env.DB, 'digest_range_max'),
-          env.DB.prepare("SELECT title, pdf_filename, processed_at FROM seen_cases WHERE source='ERA' ORDER BY processed_at DESC LIMIT 1").first<{title: string; pdf_filename: string; processed_at: string}>(),
+          env.DB.prepare("SELECT title, pdf_filename, processed_at FROM seen_cases WHERE source='ERA' ORDER BY pdf_filename DESC LIMIT 1").first<{title: string; pdf_filename: string; processed_at: string}>(),
         ]);
         // Also get latest available case
-        const latestAvail = await env.DB.prepare("SELECT title, pdf_filename, case_url FROM seen_cases WHERE source='ERA' ORDER BY processed_at DESC LIMIT 1").first<{title: string; pdf_filename: string; case_url: string}>();
+        const latestAvail = await env.DB.prepare("SELECT title, pdf_filename, case_url FROM seen_cases WHERE source='ERA' ORDER BY pdf_filename DESC LIMIT 1").first<{title: string; pdf_filename: string; case_url: string}>();
         return jsonResponse({
           email_subject: subject,
           email_banner_default: bannerDefault,
@@ -1699,6 +1700,7 @@ Rules:
 
     // GET /admin/seen-cases
     if (request.method === 'GET' && url.pathname === '/admin/seen-cases') {
+      if (!isAuthenticated(request, env)) return new Response('Unauthorized', { status: 401 });
       const limit = parseInt(url.searchParams.get('limit') ?? '20', 10);
       const cases = await getRecentCases(env.DB, Math.min(limit, 100));
       return jsonResponse({ cases, count: cases.length });
@@ -1885,6 +1887,7 @@ Rules:
 
     // GET /admin/errors — Get recent errors (queries error_log table)
     if (request.method === 'GET' && url.pathname === '/admin/errors') {
+      if (!isAuthenticated(request, env)) return new Response('Unauthorized', { status: 401 });
       try {
         const errors = await getRecentErrors(env.DB, 50);
         return jsonResponse({ errors, count: errors.length });

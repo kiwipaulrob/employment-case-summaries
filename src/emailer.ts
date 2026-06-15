@@ -174,7 +174,7 @@ function buildHtml(cases: ProcessedCase[], dateStr: string, unsubscribeUrl: stri
   // Employment Court section (first if present)
   if (ecCases.length > 0) {
     const ecCaseSections = ecCases
-      .map((c, i) => buildCaseHtml(c, true))
+      .map((c) => buildCaseHtml(c, true))
       .join('\n<hr style="border:none;border-top:1px solid #ccc;margin:20px 0 10px 0;">\n');
     
     sectionsHtml += `<div class="section">
@@ -480,7 +480,7 @@ export async function sendEmail(params: SendEmailParams): Promise<void> {
   writer.write(encoder.encode(mimeMessage)).then(() => writer.close());
 
   const message = new EmailMessage(params.from, params.to, readable);
-  await params.emailBinding.send.call(params.emailBinding, message);
+  await params.emailBinding.send(message);
 }
 
 /**

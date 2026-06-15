@@ -16,10 +16,6 @@ import { scrapeRecentPage, enrichCasesWithDetails } from './scraper';
 
 // ─── Helpers ───────────────────────────────────────────────────────────────────
 
-function elapsed(start: number): string {
-  return (performance.now() - start).toFixed(1) + 'ms';
-}
-
 function ok<T>(label: string, value: T, ms: number): TestResult {
   return { status: 'pass', label, detail: String(value), duration_ms: Math.round(ms) };
 }
@@ -197,7 +193,8 @@ export async function testFullSummary(env: Env): Promise<DiagnosticsReport> {
   let pdfContent: PdfContent;
   try {
     pdfContent = await getPdfContent(testCase.pdfUrl);
-    results.push(ok('pdf_extraction', `Strategy: ${pdfContent.strategy}, bytes: ${pdfContent.byteCount ?? 'N/A'}, text length: ${(pdfContent.text?.length ?? 0)}`, performance.now() - pdfStart));
+    const textLen = pdfContent.strategy === 'text' ? pdfContent.text.length : 0;
+    results.push(ok('pdf_extraction', `Strategy: ${pdfContent.strategy}, text length: ${textLen}`, performance.now() - pdfStart));
   } catch (err) {
     results.push(fail('pdf_extraction', `Failed: ${String(err)}`, performance.now() - pdfStart));
     return finalise('openrouter-summary', 'Full Summary (Known PDF)', results);
@@ -228,7 +225,7 @@ export async function testFullSummary(env: Env): Promise<DiagnosticsReport> {
 // Test 4  —  PDF Extraction Quality
 // ═══════════════════════════════════════════════════════════════════════════════
 
-export async function testPdfExtraction(env: Env): Promise<DiagnosticsReport> {
+export async function testPdfExtraction(): Promise<DiagnosticsReport> {
   const results: TestResult[] = [];
 
   const pdfUrls = [
@@ -241,7 +238,10 @@ export async function testPdfExtraction(env: Env): Promise<DiagnosticsReport> {
     const start = performance.now();
     try {
       const content = await getPdfContent(p.url);
-      const textLen = content.text?.length ?? 0;
+      let textLen = 0;
+      if (content.strategy === 'text') {
+        textLen = content.text.length;
+      }
       if (content.strategy === 'base64') {
         results.push(warn(p.label, `base64 (PDF sent to LLM directly) — no text length available`, performance.now() - start));
       } else if (textLen > 100) {
@@ -360,9 +360,8 @@ export async function testEndToEnd(env: Env): Promise<DiagnosticsReport> {
   let pdfContent: PdfContent;
   try {
     pdfContent = await getPdfContent(candidate.pdfUrl!);
-    const textLen = pdfContent.text?.length ?? 0;
-    const byteCount = pdfContent.byteCount ?? 0;
-    results.push(ok('pdf_extract', `Strategy: ${pdfContent.strategy}, text: ${textLen} chars, bytes: ${byteCount}`, performance.now() - pdfStart));
+    const textLen = pdfContent.strategy === 'text' ? pdfContent.text.length : 0;
+    results.push(ok('pdf_extract', `Strategy: ${pdfContent.strategy}, text: ${textLen} chars`, performance.now() - pdfStart));
   } catch (err) {
     results.push(fail('pdf_extract', `Failed: ${String(err)}`, performance.now() - pdfStart));
     return finalise('end-to-end', 'End-to-End Single Case', results);

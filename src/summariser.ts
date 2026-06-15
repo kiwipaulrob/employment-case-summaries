@@ -270,7 +270,7 @@ export async function summariseCase(
   const request: OpenRouterRequest = {
     model,
     messages: buildMessages(caseData, pdfContent, model, systemPrompt),
-    max_tokens: 4000, // 4000 tokens to capture longer/complex cases with many legal issues (~3000–3200 words)
+    max_tokens: 8000, // 8000 tokens to capture very long/complex cases with many legal issues
   };
 
   for (let attempt = 1; attempt <= 2; attempt++) {

@@ -72,7 +72,7 @@ export function getDashboardHtml(status: {
       gap: 1rem;
       border-bottom: 2px solid #ddd;
       margin-bottom: 2rem;
-      overflow-x: auto;
+      overflow-x: auto; overflow-y: hidden;
     }
     .tab-btn {
       padding: 0.75rem 1.5rem;
@@ -540,7 +540,7 @@ export function getDashboardHtml(status: {
     <div id="diagnostics" class="tab-content">
       <div class="card">
         <div class="card-title">System Diagnostics</div>
-        <p style="color: #666; margin-bottom: 1.5rem;">Run targeted tests to isolate which layer of the summarisation pipeline is failing.</p>
+        <p style="color: #666; margin-bottom: 1.5rem;">Click a test button below. Results appear inline beneath each test. The button shows "⏳ Running..." while the test executes.</p>
 
         <div style="display: flex; flex-direction: column; gap: 1rem;">
 
@@ -745,6 +745,7 @@ export function getDashboardHtml(status: {
       if (tabName === 'errors') loadErrors();
       if (tabName === 'scraper') loadScraperStats();
       if (tabName === 'digest') { loadDigestConfig(); loadDigestPreview(); }
+      if (tabName === 'prompts') loadPrompts();
     }
 
     function dragOver(event) {
@@ -1107,7 +1108,14 @@ export function getDashboardHtml(status: {
           const parts = [];
           if (data.processed > 0) parts.push('✅ Processed ' + data.processed + ' case(s)');
           if (data.failed > 0) parts.push('❌ ' + data.failed + ' failed');
-          if (data.found > 0 && data.processed === 0) parts.push('📡 Found ' + data.new + ' new case(s) — already at processing limit');
+          if (data.found > 0 && data.processed === 0) parts.push('📡 Found ' + data.new + ' new case(s) — at processing limit');
+          if (data.found > 0 && data.cases) {
+            parts.push('<div style="font-size:12px;margin-top:8px;max-height:200px;overflow-y:auto;">');
+            for (const c of data.cases) {
+              parts.push('<div style="padding:4px 0;border-bottom:1px solid #eee;">' + esc(c.title || c.era_id) + ' <span style="color:#888;">(ID ' + c.era_id + ')</span></div>');
+            }
+            parts.push('</div>');
+          }
           if (data.found === 0) parts.push('📭 No cases found in that range');
           status.className = 'upload-status show alert ' + (data.processed > 0 ? 'alert-success' : 'alert-info');
           status.innerHTML = parts.join('<br>') + '<br><small>' + data.message + '</small>';
