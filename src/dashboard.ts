@@ -1107,7 +1107,7 @@ export function getDashboardHtml(status: {
       status.className = 'upload-status show alert alert-info';
       status.textContent = '⏳ Probing ERA IDs ' + start + '–' + end + '...';
       try {
-        const resp = await fetch('/admin/dashboard/scrape-id-range?start_id=' + start + '&end_id=' + end, { credentials: 'same-origin' });
+        const resp = await fetch('/admin/dashboard/scrape-id-range?start_id=' + start + '&end_id=' + end, { method: 'POST', credentials: 'same-origin' });
         if (resp.status === 401) {
           status.className = 'upload-status show alert alert-error';
           status.innerHTML = '🔑 Session expired. <a href="/admin" style="color:#c00;">Please log in again</a>.';
@@ -1155,7 +1155,7 @@ export function getDashboardHtml(status: {
         if (dateFrom) params.push('date_from=' + encodeURIComponent(dateFrom));
         if (dateTo) params.push('date_to=' + encodeURIComponent(dateTo));
         if (params.length) url += '?' + params.join('&');
-        const resp = await fetch(url, { credentials: 'same-origin' });
+        const resp = await fetch(url, { method: 'POST', credentials: 'same-origin' });
         if (resp.status === 401) {
           status.className = 'upload-status show alert alert-error';
           status.innerHTML = '🔑 Session expired. <a href="/admin" style="color:#c00;">Please log in again</a>.';
