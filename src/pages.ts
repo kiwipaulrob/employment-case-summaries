@@ -418,6 +418,21 @@ function shell(title: string, body: string, extraCss = ''): string {
   </div>
 </header>
 ${body}
+<script>
+(function(){
+  // Auto-expand case summary when navigated from awards page
+  var p = new URLSearchParams(location.search);
+  var eid = p.get('expand');
+  if (eid) {
+    var el = document.getElementById('case-' + eid);
+    if (el) {
+      var det = el.querySelector('details.case-expand');
+      if (det) { det.open = true; }
+      el.scrollIntoView({ behavior:'smooth', block:'start' });
+    }
+  }
+})();
+</script>
 <footer class="site-footer">
   <div>
     &copy; ${new Date().getFullYear()} ERA Digest &mdash;
@@ -1007,15 +1022,16 @@ export function awardsPage(rows: CaseAwardWithCase[]): string {
     const eraIdMatch = r.case_url?.match(/\/view\/(\d+)/);
     const eraId = eraIdMatch?.[1] || null;
     const summaryLink = eraId
-      ? `<a href="/#case-${eraId}" style="font-weight:600;">Summary →</a>`
-      : '—';
-    const detailLink = r.case_url
-      ? `<a href="${escapeHtml(r.case_url)}" target="_blank" rel="noopener" style="font-weight:600;">View →</a>`
-      : '—';
-    // PDF link (secondary)
+      ? `<a href="/?expand=${eraId}#case-${eraId}" class="links-pill">Summary</a>`
+      : null;
+    const eraLink = r.case_url
+      ? `<a href="${escapeHtml(r.case_url)}" target="_blank" rel="noopener" class="links-pill">ERA.Govt.NZ</a>`
+      : null;
+    // PDF link
     const pdfLink = r.pdf_url
-      ? `<a href="${escapeHtml(r.pdf_url)}" target="_blank" rel="noopener" style="font-size:11px;color:${COLORS.muted};">PDF</a>`
-      : '';
+      ? `<a href="${escapeHtml(r.pdf_url)}" target="_blank" rel="noopener" class="links-pill">PDF</a>`
+      : null;
+    const allLinks = [summaryLink, pdfLink, eraLink].filter(Boolean).join('<span class="links-sep"> | </span>') || '—';
     return `<tr>
   <td style="font-weight:500;max-width:320px;word-wrap:break-word;white-space:normal;">${escapeHtml(title)}</td>
   <td style="text-align:right;white-space:nowrap;">${fmtDollar(r.hhd_amount)}</td>
@@ -1026,7 +1042,7 @@ export function awardsPage(rows: CaseAwardWithCase[]): string {
   <td style="text-align:right;white-space:nowrap;">${fmtDollar(r.costs_awarded)}</td>
   <td style="text-align:center;">${r.reinstatement ? '✓' : '—'}</td>
   <td style="${outcomeColor[outcome] ?? ''}">${outcomeLabel[outcome] ?? '—'}</td>
-  <td style="text-align:center;white-space:nowrap;">${detailLink}${summaryLink !== '—' ? `<br>${summaryLink}` : ''}${pdfLink ? `<br>${pdfLink}` : ''}</td>
+  <td style="text-align:center;white-space:nowrap;font-size:11px;">${allLinks}</td>
 </tr>`;
   }).join('\n');
 
@@ -1057,6 +1073,9 @@ export function awardsPage(rows: CaseAwardWithCase[]): string {
   .stat-row-label { font-size:13px; font-weight:600; color:${COLORS.navy}; margin-bottom:10px; }
   @media(max-width:600px){ .awards-stats{grid-template-columns:1fr 1fr;} .awards-table{font-size:11px;} }
   .awards-page .container { max-width: 1100px; }
+  .links-pill { color:#2563eb; text-decoration:none; }
+  .links-pill:hover { text-decoration:underline; }
+  .links-sep { color:#cbd5e1; }
   `;
 
   const body = `
