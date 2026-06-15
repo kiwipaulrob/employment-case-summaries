@@ -469,7 +469,8 @@ export function homePage(
   </div>
 </details>` : (excerpt ? `<div class="case-card-excerpt" style="margin-top:8px;">${escapeHtml(excerpt)}</div>` : '');
 
-      return `<div class="case-card">
+      const caseAnchor = eraId ? `id="case-${eraId}"` : '';
+      return `<div class="case-card" ${caseAnchor}>
   <div class="case-card-title">${escapeHtml(title)}</div>
   ${meta ? `<div class="case-card-meta">${escapeHtml(meta)}</div>` : ''}
   ${expandable}
@@ -1004,6 +1005,12 @@ export function awardsPage(rows: CaseAwardWithCase[]): string {
     const contribPct = r.contribution_applied === 1 && r.contribution_reduction
       ? escapeHtml(r.contribution_reduction) : '—';
     // Case detail link (determination view page)
+    // Extract ERA ID for summary link
+    const eraIdMatch = r.case_url?.match(/\/view\/(\d+)/);
+    const eraId = eraIdMatch?.[1] || null;
+    const summaryLink = eraId
+      ? `<a href="/#case-${eraId}" style="font-weight:600;">Summary →</a>`
+      : '—';
     const detailLink = r.case_url
       ? `<a href="${escapeHtml(r.case_url)}" target="_blank" rel="noopener" style="font-weight:600;">View →</a>`
       : '—';
@@ -1021,7 +1028,7 @@ export function awardsPage(rows: CaseAwardWithCase[]): string {
   <td style="text-align:right;white-space:nowrap;">${fmtDollar(r.costs_awarded)}</td>
   <td style="text-align:center;">${r.reinstatement ? '✓' : '—'}</td>
   <td style="${outcomeColor[outcome] ?? ''}">${outcomeLabel[outcome] ?? '—'}</td>
-  <td style="text-align:center;white-space:nowrap;">${detailLink}${pdfLink ? `<br>${pdfLink}` : ''}</td>
+  <td style="text-align:center;white-space:nowrap;">${detailLink}${summaryLink !== '—' ? `<br>${summaryLink}` : ''}${pdfLink ? `<br>${pdfLink}` : ''}</td>
 </tr>`;
   }).join('\n');
 

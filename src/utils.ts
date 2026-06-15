@@ -366,7 +366,14 @@ export function getSummaryExcerpt(summary: string, maxLength = 260): string {
     return '';
   }
 
-  // Try to extract the FACTS section
+  // Try to extract the EXECUTIVE SUMMARY section (preferred for preview)
+  const execMatch = summary.match(/EXECUTIVE SUMMARY[:\s]*\n([\s\S]*?)(?:\n[A-Z &]{4,}[:\s]*\n|$)/);
+  if (execMatch?.[1]) {
+    const excerpt = execMatch[1].trim();
+    return excerpt.length > maxLength ? excerpt.slice(0, maxLength).trimEnd() + '…' : excerpt;
+  }
+
+  // Fallback: try to extract the FACTS section
   const factsMatch = summary.match(/FACTS[:\s]*\n([\s\S]*?)(?:\n[A-Z &]{4,}[:\s]*\n|$)/);
   if (factsMatch?.[1]) {
     const excerpt = factsMatch[1].trim();
