@@ -519,9 +519,22 @@ export function getDashboardHtml(status: {
     <!-- Rescan Tab -->
     <div id="rescan" class="tab-content">
       <div class="card">
-        <div class="card-title">Rescan Cases</div>
-        <p style="color: #666; margin-bottom: 1.5rem;">Re-process previously stored cases with updated LLM prompts. This is useful after modifying the prompts above.</p>
-        
+        <div class="card-title">Rescan Cases by ERA ID</div>
+        <p style="color: #666; margin-bottom: 1.5rem;">Delete and re-summarise specific cases by their ERA website ID (the number after /view/ in the URL).</p>
+        <div>
+          <div class="form-group">
+            <label for="rescan-ids">ERA ID(s)</label>
+            <textarea id="rescan-ids" style="width:100%;min-height:80px;padding:10px;border:1px solid #ccc;border-radius:6px;font-size:13px;font-family:monospace;" placeholder="e.g. 21324, 21325, 21326&#10;One ID per line, or comma-separated"></textarea>
+            <small>Enter one or more ERA determination IDs. Existing summaries will be deleted and regenerated.</small>
+          </div>
+          <button type="button" class="button" onclick="rescanByIds()">Rescan ID(s)</button>
+          <div id="rescan-ids-status" style="margin-top:12px;font-size:13px;"></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">Rescan Recent Cases</div>
+        <p style="color: #666; margin-bottom: 1.5rem;">Re-process previously stored cases with updated LLM prompts.</p>
         <div>
           <div class="form-group">
             <label for="rescan-limit">Number of cases to rescan</label>
@@ -1359,6 +1372,33 @@ export function getDashboardHtml(status: {
         statusEl.innerHTML = '<strong>❌ Error:</strong> ' + err.message;
       }
     });
+
+    // Handle rescan by specific ERA IDs
+    async function rescanByIds() {
+      const input = document.getElementById('rescan-ids');
+      const status = document.getElementById('rescan-ids-status');
+      if (!input || !status) return;
+      // Parse IDs: comma or newline separated, trimmed, non-empty, numeric
+      const raw = input.value.trim();
+      const ids = raw.split(',').map(s => s.trim()).filter(s => s && !isNaN(parseInt(s, 10)) && parseInt(s, 10) > 0);
+      if (ids.length === 0) { status.innerHTML = '❌ No valid numeric ERA IDs found.'; return; }
+      if (ids.length > 20) { status.innerHTML = '❌ Maximum 20 IDs at a time.'; return; }
+      status.innerHTML = '⏳ Deleting ' + ids.length + ' case(s) and triggering reprocess...';
+      try {
+        const resp = await fetch('/admin/dashboard/rescan-by-ids?ids=' + ids.join(','), {
+          method: 'POST', credentials: 'same-origin',
+        });
+        const d = await resp.json();
+        if (d.success) {
+          status.innerHTML = '✅ ' + d.message;
+          input.value = '';
+        } else {
+          status.innerHTML = '❌ ' + (d.error || 'Rescan failed');
+        }
+      } catch (err) {
+        status.innerHTML = '❌ ' + err.message;
+      }
+    }
 
     // Handle rescan silently
     async function rescanSilently() {

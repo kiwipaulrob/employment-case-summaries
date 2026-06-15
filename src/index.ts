@@ -878,6 +878,58 @@ export default {
       }
     }
 
+    // POST /admin/dashboard/rescan-by-ids — Delete specific cases by ERA ID and reprocess
+    if (request.method === 'POST' && url.pathname === '/admin/dashboard/rescan-by-ids') {
+      if (!isAuthenticated(request, env)) return new Response('Unauthorized', { status: 401 });
+      try {
+        const idsParam = url.searchParams.get('ids') ?? '';
+        const ids = idsParam.split(',').map(s => s.trim()).filter(s => /^\d+$/.test(s)).map(Number);
+        if (ids.length === 0) return jsonResponse({ error: 'No valid ERA IDs provided. Use ?ids=21324,21325' }, 400);
+        if (ids.length > 20) return jsonResponse({ error: 'Maximum 20 IDs at a time.' }, 400);
+
+        // Find matching cases by extracting ID from case_url
+        const allCases = await env.DB.prepare(
+          "SELECT source, pdf_filename, case_url FROM seen_cases WHERE source = 'ERA'"
+        ).all<{source: string; pdf_filename: string; case_url: string}>();
+        const idPatterns = ids.map(id => `%/view/${id}%`);
+        const toDelete = allCases.results.filter(c => {
+          return ids.some(id => c.case_url?.includes(`/view/${id}`));
+        });
+
+        if (toDelete.length === 0) {
+          return jsonResponse({ error: `No seen_cases matched ERA IDs: ${ids.join(', ')}` }, 404);
+        }
+
+        // Delete matched cases
+        for (const c of toDelete) {
+          await env.DB.prepare('DELETE FROM seen_cases WHERE source = ? AND pdf_filename = ?')
+            .bind(c.source, c.pdf_filename).run();
+        }
+
+        // Find the min ERA ID among deleted and reset last_era_id
+        let minId = Infinity;
+        for (const c of toDelete) {
+          for (const id of ids) {
+            if (c.case_url?.includes(`/view/${id}`) && id < minId) minId = id;
+          }
+        }
+        const resetTo = minId !== Infinity ? Math.max(minId - 1, 0) : 1;
+        await setConfig(env.DB, 'last_era_id', String(resetTo));
+        console.log(`Rescan-IDs: reset last_era_id to ${resetTo}, deleted ${toDelete.length} cases`);
+
+        // Fire-and-forget pipeline
+        ctx.waitUntil(runDigest(env, true, ids.length));
+
+        return jsonResponse({
+          success: true,
+          deleted: toDelete.length,
+          ids: ids,
+          message: `Deleted ${toDelete.length} case(s) (IDs: ${ids.join(', ')}). Pipeline triggered for reprocessing. Existing summaries will be regenerated.`,
+        });
+      } catch (err) {
+        return jsonResponse({ error: String(err) }, 500);
+      }
+    }
 
     // ──────────────────────────────────────────────────────────────────────────
     // POST /admin/dashboard/backfill-era
