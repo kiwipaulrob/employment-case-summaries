@@ -286,10 +286,14 @@ export function getDashboardHtml(status: {
 </head>
 <body>
   <div class="navbar">
-    <h1>ERA Admin Dashboard</h1>
-    <form method="GET" action="/admin/logout" class="logout-form">
-      <button type="submit" class="logout-btn">Logout</button>
-    </form>
+  <h1>ERA Admin Dashboard</h1>
+  <div style="display:flex;gap:16px;align-items:center;font-size:13px;">
+  <a href="/" style="color:#666;text-decoration:none;">Front Page</a>
+  <a href="/awards" style="color:#666;text-decoration:none;">Awards</a>
+  <form method="GET" action="/admin/logout" class="logout-form" style="margin:0;">
+  <button type="submit" class="logout-btn">Logout</button>
+  </form>
+  </div>
   </div>
 
   <div class="container">

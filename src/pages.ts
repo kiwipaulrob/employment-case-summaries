@@ -1058,7 +1058,7 @@ export function awardsPage(rows: CaseAwardWithCase[]): string {
 <div class="page-content awards-page">
   <div class="container">
     <div class="hero" style="margin-bottom:32px;">
-      <h1>Awards &amp; Damages</h1>
+      <h1>Awards &amp; Remedies</h1>
       <p>Remedy data extracted from ERA determinations. ${total > 0 ? `${total} case${total !== 1 ? 's' : ''} analysed.` : 'No data yet.'}</p>
     </div>
 
@@ -1207,7 +1207,7 @@ export function awardsPage(rows: CaseAwardWithCase[]): string {
   </div>
 </div>`;
 
-  return shell('Awards & Damages', body, extraCss);
+  return shell('Awards & Remedies', body, extraCss);
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
