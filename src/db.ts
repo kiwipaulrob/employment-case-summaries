@@ -215,14 +215,15 @@ export async function addPendingSubscriber(
   email: string,
   name: string | null,
   confirmToken: string,
-  unsubscribeToken: string
+  unsubscribeToken: string,
+  preferences?: string
 ): Promise<DbSubscriber> {
   await db
     .prepare(
-      `INSERT INTO subscribers (email, name, active, confirmed, confirm_token, unsubscribe_token, created_at)
-       VALUES (?, ?, 0, 0, ?, ?, datetime('now'))`
+      `INSERT INTO subscribers (email, name, active, confirmed, confirm_token, unsubscribe_token, preferences, created_at)
+       VALUES (?, ?, 0, 0, ?, ?, ?, datetime('now'))`
     )
-    .bind(email, name, confirmToken, unsubscribeToken)
+    .bind(email, name, confirmToken, unsubscribeToken, preferences || null)
     .run();
   
   const subscriber = await getSubscriberByEmail(db, email);
@@ -439,7 +440,8 @@ export async function updatePreferences(
 export async function addSubscriberPending(
   db: D1Database,
   email: string,
-  name: string | null
+  name: string | null,
+  preferences?: string
 ): Promise<{ token: string; alreadyActive: boolean }> {
   const existing = await getSubscriberByEmail(db, email);
   if (existing && existing.active && existing.confirmed) {
@@ -450,7 +452,7 @@ export async function addSubscriberPending(
   const confirmToken = crypto.randomUUID();
   const unsubscribeToken = crypto.randomUUID();
   
-  await addPendingSubscriber(db, email, name, confirmToken, unsubscribeToken);
+  await addPendingSubscriber(db, email, name, confirmToken, unsubscribeToken, preferences);
   return { token: confirmToken, alreadyActive: false };
 }
 

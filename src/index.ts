@@ -50,12 +50,12 @@ import { summariseCase } from './summariser';
 import { summariseEmploymentCourtCase } from './summariserEmploymentCourt';
 import {
   sendDigestToAll, sendAdminAlert, buildDigestEmail,
-  sendEmail, sendConfirmationEmail,
+  sendConfirmationEmail,
 } from './emailer';
 import {
   homePage, subscribedPage, confirmedPage, unsubscribedPage,
   alreadyUnsubscribedPage, invalidTokenPage, alreadySubscribedPage,
-  adminLoginPage, adminPage, preferencesPage, awardsPage,
+  adminLoginPage, preferencesPage, awardsPage,
 } from './pages';
 import { getDashboardHtml } from './dashboard';
 import { isValidEmail, parseAwardsBlock, timingSafeEqual } from './utils';
@@ -353,7 +353,7 @@ export default {
       if (session !== env.ADMIN_SECRET) {
         return htmlResponse(adminLoginPage());
       }
-      const [subscribers, lastRun, lastEmail, stats, isPausedConfig] = await Promise.all([
+      const [subscribers, lastRun, , stats, isPausedConfig] = await Promise.all([
         getAllSubscribers(env.DB),
         getConfig(env.DB, 'last_run_at'),
         getConfig(env.DB, 'last_email_sent_at'),
@@ -540,13 +540,13 @@ export default {
           // Derive filename — File.name may be undefined on some CF Workers runtime versions
           const explicitFilename = (formData.get('filename') as string | null) ?? null;
           resolvedFilename =
-            (file instanceof File && file.name ? file.name : null) ??
+            (typeof file === 'object' && file !== null && 'name' in file && typeof (file as any).name === 'string' ? (file as any).name : null) ??
             explicitFilename ??
             'upload.pdf';
 
           // Read bytes — CF Workers may return Blob, File, or a UTF-8-decoded string
-          if (file instanceof Blob) {
-            arrayBuffer = await (file as Blob).arrayBuffer();
+          if (typeof file === 'object' && file !== null && 'arrayBuffer' in file) {
+            arrayBuffer = await (file as any).arrayBuffer();
           } else {
             // Last resort: wrap in Response (may produce incorrect bytes for binary data)
             arrayBuffer = await new Response(file as BodyInit).arrayBuffer();
@@ -891,7 +891,6 @@ export default {
         const allCases = await env.DB.prepare(
           "SELECT source, pdf_filename, case_url FROM seen_cases WHERE source = 'ERA'"
         ).all<{source: string; pdf_filename: string; case_url: string}>();
-        const idPatterns = ids.map(id => `%/view/${id}%`);
         const toDelete = allCases.results.filter(c => {
           return ids.some(id => c.case_url?.includes(`/view/${id}`));
         });
@@ -1408,9 +1407,9 @@ Rules:
         const formData = await request.formData();
         const pdfFiles: File[] = [];
         for (const entry of formData.entries()) {
-          const val = entry[1];
+          const val = entry[1] as any;
           if (typeof val !== 'string' && val.name && val.name.endsWith('.pdf')) {
-            pdfFiles.push(val as unknown as File);
+            pdfFiles.push(val as File);
           }
         }
 
@@ -1445,7 +1444,7 @@ Rules:
 
             // Read file bytes
             const pdfBytes = await file.arrayBuffer();
-            const pdfContent = await getPdfContentFromBytes(new Uint8Array(pdfBytes), pdfFilename);
+            const pdfContent = await getPdfContentFromBytes(pdfBytes as ArrayBuffer, (env as any).USE_PDF_URL_PASSTHROUGH !== 'false');
 
             // Build case listing from filename
             const caseListing: import('./types').CaseListing = {
@@ -1456,7 +1455,7 @@ Rules:
 
             const summaryResult = await summariseCase(caseListing, pdfContent, env.OPENROUTER_API_KEY, env.OPENROUTER_MODEL, env.DB);
             if (!summaryResult.success) {
-              details.push({ filename: pdfFilename, success: false, error: summaryResult.error });
+              details.push({ filename: pdfFilename, success: false, error: String(summaryResult.error ?? 'Unknown error') });
               failed++;
               continue;
             }
@@ -1573,7 +1572,6 @@ Rules:
         };
 
         // Download and extract PDF using Strategy B (FlateDecode — works for all ERA PDFs)
-        const usePdfPassthrough = env.USE_PDF_URL_PASSTHROUGH !== 'false';
         const pdfContent = await getPdfContent(pdfUrl);
 
         // Summarise with ERA prompt (read from D1 at runtime)
@@ -1894,7 +1892,7 @@ Rules:
 
         const notice = await getEmailNotice(env.DB);
         const { sent, failed } = await sendDigestToAll(
-          subscribers, cases, env.SENDING_ADDRESS, env.TIMEZONE, env.EMAIL, env.SITE_URL, notice
+          subscribers, cases, env.SENDING_ADDRESS, env.TIMEZONE, env.EMAIL, env.SITE_URL, notice || undefined
         );
 
         // Only clear notice after successful email dispatch
@@ -2021,7 +2019,7 @@ Rules:
         const results: DiagnosticsReport[] = [];
 
         if (testName === 'all') {
-          for (const [name, test] of Object.entries(DIAGNOSTICS_TESTS)) {
+          for (const [, test] of Object.entries(DIAGNOSTICS_TESTS)) {
             const report = await test.run(env, request);
             results.push(report);
           }
@@ -2184,7 +2182,6 @@ async function runDigest(env: Env, force = false, limit = 3): Promise<RunResult>
     const enrichedCases = await enrichCasesWithDetails(newCases);
 
     // Steps 5 & 6: Summarise + store (only commit if successful)
-    const usePdfPassthrough = env.USE_PDF_URL_PASSTHROUGH !== 'false';
     const processedCases: ProcessedCase[] = [];
     // Map from pdf_filename → parsed awards data (populated during summarisation,
     // inserted into case_awards after markCaseSeen succeeds)
@@ -2261,7 +2258,7 @@ async function runDigest(env: Env, force = false, limit = 3): Promise<RunResult>
       const notice = await getEmailNotice(env.DB);
       const { sent, failed } = await sendDigestToAll(
         subscribers, processedCases, env.SENDING_ADDRESS,
-        env.TIMEZONE, env.EMAIL, env.SITE_URL, notice
+        env.TIMEZONE, env.EMAIL, env.SITE_URL, notice || undefined
       );
       result.emailsSent = sent;
       if (failed > 0) result.failed += failed;

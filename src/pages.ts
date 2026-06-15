@@ -440,7 +440,6 @@ export function homePage(
   totalCount = 0
 ): string {
   // Cases are pre-filtered server-side; just render them all
-  const caseCount = cases.length;
 
   const caseCards = cases
     .filter(c => c.summary && !c.summary.startsWith('(seeded'))
@@ -678,12 +677,12 @@ export function alreadySubscribedPage(email: string): string {
 // ─── Preferences page ──────────────────────────────────────────────────────────
 
 export function preferencesPage(
-  subscriber: { email: string; name: string | null; preferences: string },
+  subscriber: { email: string; name: string | null; preferences: string | null },
   saved?: boolean,
   unsubscribed?: boolean
 ): string {
   let prefs = { show_costs: false, show_consent: false };
-  try { prefs = JSON.parse(subscriber.preferences); } catch {}
+  try { prefs = JSON.parse(subscriber.preferences || '{}'); } catch {}
   const msg = unsubscribed
     ? '<div class="alert alert-success"><strong>✓ Unsubscribed.</strong> You will no longer receive ERA Digest emails.</div>'
     : saved
@@ -764,7 +763,6 @@ export interface AdminStats {
 export function adminPage(subscribers: DbSubscriber[], stats: AdminStats): string {
   const active = subscribers.filter(s => s.active === 1 && s.confirmed === 1).length;
   const pending = subscribers.filter(s => s.confirmed === 0).length;
-  const inactive = subscribers.filter(s => s.active === 0 && s.confirmed === 1).length;
 
   const statsHtml = `
 <div class="stats-grid">

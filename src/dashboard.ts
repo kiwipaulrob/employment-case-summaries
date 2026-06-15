@@ -6,12 +6,16 @@
 export function getDashboardHtml(status: {
   total_subscribers: number;
   active_subscribers: number;
-  subscribers?: Array<{ id: number; email: string; name: string; confirmed: number }>;
+  subscribers?: Array<{ id: number; email: string; name: string | null; confirmed: number; confirmed_at?: string; created_at?: string }>;
   last_run_at: string | null;
+  last_email_sent_at?: string | null;
   is_paused: boolean;
   total_cases: number;
   era_cases: number;
   ec_cases: number;
+  cron_schedule?: string;
+  timezone?: string;
+  email_notice?: string | null;
 }): string {
   const subscriberRows = (status.subscribers || []).map(sub => `
     <div class="subscriber-row">

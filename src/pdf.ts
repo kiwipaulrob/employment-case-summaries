@@ -173,7 +173,7 @@ async function fetchPdfViaSidecar(pdfUrl: string): Promise<PdfContent> {
   console.log(
     `[pdf] Sidecar: extracted ${result.text_length} chars across ${result.page_count} pages via ${result.method}`
   );
-  return { strategy: 'text', text: result.text };
+  return { strategy: 'text', text: result.text || '' };
 }
 
 // ─── Unified entry point ──────────────────────────────────────────────────────

@@ -47,6 +47,7 @@ export interface DbSubscriber {
   active: number;      // 1=active, 0=unsubscribed
   confirmed: number;   // 1=confirmed email, 0=pending confirmation
   created_at: string;
+  confirmed_at?: string;
   unsubscribe_token: string | null;
   preferences: string | null;
 }
@@ -123,6 +124,7 @@ export interface OpenRouterResponse {
     message: {
       content: string;
     };
+    finish_reason?: string;
   }>;
   error?: {
     message: string;
