@@ -362,20 +362,18 @@ export function getDashboardHtml(status: {
         <div id="range-status" style="font-size:12px;color:#888;margin-top:8px;"></div>
       </div>
 
-      <!-- 👁️ Preview Next Email -->
+      <!-- 👁️ Recent Processed Cases -->
       <div class="card">
         <div class="card-title" style="display:flex;justify-content:space-between;align-items:center;">
-          <span>👁️ Preview — Cases for Next Email</span>
+          <span>👁️ Recent Processed Cases</span>
           <span>
             <button class="button" style="padding:6px 14px;font-size:12px;margin-right:6px;" onclick="loadDigestPreview()">Refresh</button>
-            <button class="button secondary" style="padding:6px 14px;font-size:12px;" onclick="sendDigestNow()" id="send-now-btn">Send Now</button>
           </span>
         </div>
         <div id="digest-preview-list">
           <p style="color:#999;">Click "Refresh" to load preview.</p>
         </div>
         <p style="font-size:12px;color:#999;margin-top:10px;" id="preview-meta"></p>
-        <div id="digest-send-status" class="upload-status" style="margin-top:8px;"></div>
       </div>
 
       <!-- ✏️ Email Templates -->
@@ -1475,6 +1473,13 @@ export function getDashboardHtml(status: {
       resultEl.innerHTML = '<p style="color:#999;">Running test...</p>';
       resultEl.style.color = '#666';
 
+      function updateButton(data, passed) {
+        btn.textContent = (passed ? '✅ ' : '❌ ') + originalText;
+        btn.style.background = passed ? '#4f6f52' : '#c0392b';
+        btn.disabled = false;
+        setTimeout(() => { btn.textContent = originalText; btn.style.background = ''; }, 4000);
+      }
+
       try {
         const url = '/admin/diagnostics?test=' + encodeURIComponent(testName);
         const response = await fetch(url, { credentials: 'same-origin' });
@@ -1495,25 +1500,26 @@ export function getDashboardHtml(status: {
           }
           const data = await authResp.json();
           renderDiagResults(resultEl, data);
+          updateButton(data, data.summary?.fail === 0);
         } else if (response.ok) {
           const data = await response.json();
           renderDiagResults(resultEl, data);
+          updateButton(data, data.summary?.fail === 0);
         } else {
           const text = await response.text();
           resultEl.style.color = '#c0392b';
           resultEl.innerHTML = '❌ HTTP ' + response.status + ': ' + text.slice(0, 200);
+          btn.textContent = '❌ ' + originalText;
+          btn.style.background = '#c0392b';
+          btn.disabled = false;
+          setTimeout(() => { btn.textContent = originalText; btn.style.background = ''; }, 4000);
         }
       } catch (err) {
         resultEl.style.color = '#c0392b';
         resultEl.innerHTML = '❌ Error: ' + err.message;
+        btn.textContent = originalText;
+        btn.disabled = false;
       }
-
-      // Show pass/fail badge on button
-      const passed = data.summary?.fail === 0;
-      btn.textContent = (passed ? '✅ ' : '❌ ') + originalText;
-      btn.style.background = passed ? '#4f6f52' : '#c0392b';
-      btn.disabled = false;
-      setTimeout(() => { btn.textContent = originalText; btn.style.background = ''; }, 4000);
     }
 
     function renderDiagResults(container, data) {

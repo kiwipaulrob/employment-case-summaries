@@ -874,7 +874,7 @@ export function adminPage(subscribers: DbSubscriber[], stats: AdminStats): strin
 
 // ─── Awards & Damages page ────────────────────────────────────────────────────
 
-export function awardsPage(rows: CaseAwardWithCase[]): string {
+export function awardsPage(rows: CaseAwardWithCase[], pageMap?: Map<string, number>): string {
   // ── Stat helpers ──────────────────────────────────────────────────────────
   function median(arr: number[]): number | null {
     if (arr.length === 0) return null;
@@ -1022,7 +1022,11 @@ export function awardsPage(rows: CaseAwardWithCase[]): string {
     const eraIdMatch = r.case_url?.match(/\/view\/(\d+)/);
     const eraId = eraIdMatch?.[1] || null;
     const summaryLink = eraId
-      ? `<a href="/?expand=${eraId}#case-${eraId}" class="links-pill">Summary</a>`
+      ? (() => {
+          const page = pageMap?.get(r.pdf_filename);
+          const pageParam = page && page > 1 ? `&page=${page}` : '';
+          return `<a href="/?expand=${eraId}${pageParam}#case-${eraId}" class="links-pill">Summary</a>`;
+        })()
       : null;
     const eraLink = r.case_url
       ? `<a href="${escapeHtml(r.case_url)}" target="_blank" rel="noopener" class="links-pill">ERA.Govt.NZ</a>`

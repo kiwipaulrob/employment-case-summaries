@@ -149,6 +149,26 @@ export async function getCaseCountPaged(
 }
 
 /**
+ * Returns all visible (non-costs, non-consent) case pdf_filenames ordered by processed_at DESC.
+ * Used by the awards page to compute which home-page page each award row falls on.
+ */
+export async function getVisibleCaseOrder(
+  db: D1Database
+): Promise<Array<{ pdf_filename: string; processed_at: string }>> {
+  const result = await db
+    .prepare(
+      `SELECT pdf_filename, processed_at FROM seen_cases
+       WHERE summary IS NOT NULL
+         AND summary NOT LIKE '(seeded%'
+         AND summary NOT LIKE '[COSTS ONLY]%'
+         AND summary NOT LIKE '[CONSENT]%'
+       ORDER BY processed_at DESC`
+    )
+    .all<{ pdf_filename: string; processed_at: string }>();
+  return result.results;
+}
+
+/**
  * Returns case statistics (counts by source).
  * Used by dashboard to avoid loading full result sets.
  */

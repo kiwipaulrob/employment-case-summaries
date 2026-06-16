@@ -42,7 +42,7 @@ import {
   getSubscriberByToken, updatePreferences,
   insertCaseAward, getCaseAwardRows, getCasesWithoutAwards,
   savePromptWithHistory, getPromptVersions, revertPromptToVersion,
-  insertErrorLog, getRecentErrors,
+  insertErrorLog, getRecentErrors, getVisibleCaseOrder,
 } from './db';
 import { scrapeRecentPage, scrapeAllPages, enrichCasesWithDetails, scrapeEraDetailPage } from './scraper';
 import { getPdfContent, getPdfContentFromBytes, type PdfContent } from './pdf';
@@ -191,7 +191,14 @@ export default {
     if (request.method === 'GET' && url.pathname === '/awards') {
       try {
         const rows = await getCaseAwardRows(env.DB, 'ERA');
-        return htmlResponse(awardsPage(rows));
+        // Build page-number map so Summary links go to the right home-page page
+        const pageSize = 20;
+        const caseOrder = await getVisibleCaseOrder(env.DB);
+        const pageMap = new Map<string, number>();
+        caseOrder.forEach((c, i) => {
+          pageMap.set(c.pdf_filename, Math.floor(i / pageSize) + 1);
+        });
+        return htmlResponse(awardsPage(rows, pageMap));
       } catch (err) {
         console.error(`Awards page error: ${err}`);
         return htmlResponse(awardsPage([]));
