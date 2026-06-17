@@ -194,12 +194,12 @@ export function summaryToPageHtml(summary: string): string {
           .split('\n')
           .map(l => l.replace(/^(\d+[.)]|[•\-])\s*/, '').trim())
           .filter(Boolean);
-        const listHtml = items.map(i => `<li>${escapeHtml(i).replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')}</li>`).join('');
+        const listHtml = items.map(i => `<li>${escapeHtml(i).replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>').replace(/\*(.+?)\*/g, '<em>$1</em>')}</li>`).join('');
         parts.push(`<div class="sum-body"><ol>${listHtml}</ol></div>`);
       } else {
         const paras = content.split(/\n{2,}/).map(p => p.trim()).filter(Boolean);
         const paraHtml = paras
-          .map(p => `<p>${escapeHtml(p).replace(/\n/g, '<br>').replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')}</p>`)
+          .map(p => `<p>${escapeHtml(p).replace(/\n/g, '<br>').replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>').replace(/\*(.+?)\*/g, '<em>$1</em>')}</p>`)
           .join('');
         parts.push(`<div class="sum-body">${paraHtml}</div>`);
       }
@@ -241,7 +241,7 @@ export interface AwardsData {
   costs_awarded_text: string | null;  // raw text like "reserved", or null
   reinstatement: boolean;
   reinstatement_sought: boolean;
-  employee_status: boolean;
+  employee_status: 'employee' | 'contractor' | null;
   outcome: 'applicant' | 'respondent' | 'mixed' | 'none' | null;
   decision_date: string | null;        // YYYY-MM-DD if stated
   employment_tenure: string | null;    // e.g. "2.5 years", "6 months"
@@ -273,7 +273,7 @@ export function parseAwardsBlock(summary: string): { awardsData: AwardsData | nu
   const awardsData: AwardsData = {
     hhd_amount: null, lost_wages: null, lost_wages_weeks: null,
     weekly_wage: null, costs_awarded: null, costs_awarded_text: null,
-    reinstatement: false, reinstatement_sought: false, employee_status: false,
+    reinstatement: false, reinstatement_sought: false, employee_status: null,
     outcome: null,
     decision_date: null, employment_tenure: null,
     contribution_applied: false, contribution_reduction: null,
@@ -312,7 +312,10 @@ export function parseAwardsBlock(summary: string): { awardsData: AwardsData | nu
         awardsData.reinstatement_sought = /^yes$/i.test(value.trim());
         break;
       case 'employee status':
-        awardsData.employee_status = /^yes$/i.test(value.trim());
+        const esVal = value.trim().toLowerCase();
+        if (esVal === 'employee') awardsData.employee_status = 'employee';
+        else if (esVal === 'contractor') awardsData.employee_status = 'contractor';
+        else awardsData.employee_status = null;
         break;
       case 'outcome': {
         const v = value.trim().toLowerCase();

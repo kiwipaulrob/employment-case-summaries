@@ -1015,10 +1015,12 @@ export function awardsPage(rows: CaseAwardWithCase[], pageMap?: Map<string, numb
     const reinstateIcon = r.reinstatement_sought
       ? (r.reinstatement ? `<span style="color:${COLORS.success};font-weight:600;">✓</span>` : `<span style="color:${COLORS.error};font-weight:600;">✗</span>`)
       : `<span style="color:${COLORS.muted};">—</span>`;
-    // Employee status indicator
-    const empStatusIcon = r.employee_status
-      ? `<span title="Considered employee/contractor status" style="font-size:11px;">⚖️</span>`
-      : '—';
+    // Employee status indicator — three states
+    const empStatusIcon = r.employee_status === 'employee'
+      ? `<span style="color:${COLORS.success};font-weight:600;" title="Employee">✓</span>`
+      : r.employee_status === 'contractor'
+      ? `<span style="color:${COLORS.error};font-weight:600;" title="Contractor">✗</span>`
+      : `<span style="color:${COLORS.muted};">—</span>`;
     return `<tr>
   <td style="font-weight:500;max-width:320px;word-wrap:break-word;white-space:normal;">${escapeHtml(title)}</td>
   <td style="text-align:right;white-space:nowrap;">${fmtDollar(r.hhd_amount)}</td>

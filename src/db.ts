@@ -690,7 +690,7 @@ export interface CaseAwardRow {
   costs_awarded_text: string | null;
   reinstatement: number;
   reinstatement_sought: number;
-  employee_status: number;
+  employee_status: string | null;
   outcome: string | null;
   extraction_method: string;
   created_at: string;
@@ -727,7 +727,7 @@ export async function insertCaseAward(
     costs_awarded_text?: string | null;
     reinstatement: boolean;
     reinstatement_sought?: boolean;
-    employee_status?: boolean;
+    employee_status?: 'employee' | 'contractor' | null;
     outcome: string | null;
     decision_date?: string | null;
     employment_tenure?: string | null;
@@ -772,7 +772,7 @@ export async function insertCaseAward(
       data.costs_awarded_text ?? null,
       data.reinstatement ? 1 : 0,
       data.reinstatement_sought ? 1 : 0,
-      data.employee_status ? 1 : 0,
+      data.employee_status ?? null,
       data.outcome, extractionMethod,
       data.decision_date ?? null,
       data.employment_tenure ?? null,

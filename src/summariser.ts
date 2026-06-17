@@ -104,7 +104,7 @@ Penalties: [total dollar amount of statutory penalties ordered against the respo
 Costs: [dollar amount, e.g. $2,500, OR write "reserved" if the Authority deferred the costs decision, OR nil]
 Reinstatement: [yes or no]
 Reinstatement sought: [yes if any party applied for reinstatement, even if it was not ordered — otherwise no]
-Employee status: [yes if the determination considers whether the person was an employee or contractor and makes a finding on that issue — otherwise no]
+Employee status: [employee if the determination considers and finds the person was an employee; contractor if the person was found not to be an employee (i.e. was an independent contractor); nil if the determination does not consider the employee/contractor status issue]
 Outcome: [applicant if the employee/applicant succeeded; respondent if the employer/respondent succeeded; mixed if partial; none if no determination on merits]
 AWARDS_DATA_END`;
 
