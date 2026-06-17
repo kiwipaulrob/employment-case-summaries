@@ -1524,7 +1524,7 @@ Rules:
         return new Response('Unauthorized', { status: 401 });
       }
       try {
-        const body = await request.json() as { pdfUrl?: string; eraId?: number; updateTitle?: boolean } | null;
+        const body = await request.json() as { pdfUrl?: string; eraId?: number; updateTitle?: boolean; overwrite?: boolean } | null;
         const pdfUrl = body?.pdfUrl?.trim();
         const eraId = body?.eraId ? Number(body.eraId) : null;
 
@@ -1588,8 +1588,9 @@ Rules:
         const isPlaceholder = existingRow
           ? (existingRow.summary ?? '').startsWith('(seeded')
           : false;
+        const overwrite = body?.overwrite === true;
 
-        if (existingRow && !isPlaceholder) {
+        if (existingRow && !isPlaceholder && !overwrite) {
           return jsonResponse({
             success: false,
             already_exists: true,
@@ -1636,7 +1637,7 @@ Rules:
           source: 'ERA',
         };
 
-        if (isPlaceholder) {
+        if (isPlaceholder || overwrite) {
           // Overwrite the existing placeholder row with the real summary
           await env.DB.prepare(
             `UPDATE seen_cases SET title=?, summary=?, member=?, category=?, processed_at=?
