@@ -520,7 +520,7 @@ function arrayBufferToBase64(buffer: ArrayBuffer): string {
  * @param text     The full extracted text
  * @param maxTokens Maximum input tokens to allow (default 12000, leaving room for prompt)
  */
-export function truncateToTokenBudget(text: string, maxTokens = 12_000): string {
+export function truncateToTokenBudget(text: string, maxTokens = 40_000): string {
   const maxChars = maxTokens * 4;
   if (text.length <= maxChars) return text;
 
