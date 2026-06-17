@@ -42,8 +42,8 @@ Respondent: Self-represented
 FACTS
 The applicant was employed as a receptionist from March 2020.
 
-LEGAL ISSUES
-1. Was the dismissal unjustified? [Established]
+LEGAL ISSUES & RESOLUTIONS
+1. Was the dismissal unjustified? [Established] — The Authority applied the s 103A test and found the employer did not act as a fair and reasonable employer could have in the circumstances. The employer failed to give the applicant a fair opportunity to respond to the allegations before deciding to dismiss. The dismissal was therefore unjustified.
 
 OUTCOME
 The claim was upheld.
@@ -67,7 +67,7 @@ Compensation: $12,500`,
     expect(html).toContain('Smith v Acme Ltd');
     expect(html).toContain('Parties');
     expect(html).toContain('Facts');
-    expect(html).toContain('Legal issues');
+    expect(html).toContain('Legal issues &amp; resolutions');
     expect(html).toContain('Outcome');
     expect(html).toContain('Remedy');
   });

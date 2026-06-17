@@ -46,17 +46,14 @@ CRITICAL: Extract representative names EXACTLY as stated in the determination. I
 FACTS
 [4–6 sentences. Describe: the nature and duration of the employment relationship, the key chronological events leading to the dispute, clearly distinguish undisputed facts from facts in dispute, identify any procedural history (e.g. grievance, mediation), and state the key arguments each party advanced. Use plain language. Be accurate and conservative — do not infer beyond what is stated.]
 
-LEGAL ISSUES
-[EXTRACT ALL ISSUES from the determination, preserving their numbering and sequence. Do not filter or omit any issue. For each issue, state it as a precise question or statutory test. Include preliminary, threshold, secondary, procedural, and unsuccessful issues. Flag the status of each issue in square brackets: (Established), (Dismissed), (Not reached), (Partially established), or (Conditional).]
-1. [Issue 1 — status: Established/Dismissed/Not reached/etc.]
-2. [Issue 2 — status]
-3. [Continue for ALL issues in the determination, not just the main claims.]
+LEGAL ISSUES & RESOLUTIONS
+[For EACH issue identified in the determination, output a single numbered entry that BOTH states the issue with its status AND explains how it was resolved. Do not list issues separately from resolutions.]
 
-HOW THE ISSUES WERE RESOLVED
-[Provide a resolution for EVERY issue listed above, numbered to match. For each issue (whether successful, unsuccessful, or not reached), provide 2–4 sentences explaining: (a) the applicable statutory or common law test or principles; (b) how (or whether) the Authority applied the evidence to that test; (c) any binding authorities or precedents cited; (d) the Authority's conclusion and reasoning. For issues not reached, explain why they were not reached.]
-1. [Issue 1 resolution — 2–4 sentences]
-2. [Issue 2 resolution]
-3. [Continue, matching the numbering above. Every legal issue must have an equally detailed resolution.]
+1. [Full statement of Issue 1 — status: Established/Dismissed/Not reached/Partially established/Conditional — then 2–4 sentences explaining: (a) the applicable statutory or common law test or principles; (b) how (or whether) the Authority applied the evidence to that test; (c) any binding authorities or precedents cited; (d) the Authority's conclusion and reasoning. For issues not reached, explain why they were not reached.]
+
+2. [Issue 2 — status and resolution — 2–4 sentences]
+
+3. [Continue for ALL issues in the determination. Include preliminary, threshold, secondary, procedural, and unsuccessful issues. Every issue must have both a status flag AND a resolution paragraph.]
 
 OUTCOME
 [One sentence stating the overall result — e.g. "The claim was upheld in full / dismissed / partially upheld (X issue upheld, Y issue dismissed)."]
@@ -72,7 +69,7 @@ COMPLETENESS CHECK
 Before submitting your response, verify:
 1. ALL issues mentioned in the determination are listed (do not filter for importance or outcome).
 2. Every issue includes a status flag: (Established), (Dismissed), (Not reached), (Partially established), or (Conditional).
-3. Every legal issue in the LEGAL ISSUES section has a matching numbered paragraph in HOW THE ISSUES WERE RESOLVED.
+3. Every issue in LEGAL ISSUES & RESOLUTIONS includes both the issue statement AND a detailed resolution paragraph.
 4. Every resolution explains the test, how it was applied, authorities cited, and the reasoning (not just the conclusion).
 5. Issues that were not reached include explicit explanation of why they were not reached.
 6. The REMEDY section itemises all compensation types, amounts, conditions, interim/final status, or notes "None ordered."

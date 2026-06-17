@@ -169,6 +169,7 @@ export function summaryToPageHtml(summary: string): string {
     'EXECUTIVE SUMMARY': 'Executive Summary',
     'EMPLOYMENT COURT ISSUES RAISED': 'Employment Court Issues Raised',
     'HOW THE EMPLOYMENT COURT ISSUES WERE RESOLVED': 'How the Employment Court Issues Were Resolved',
+    'LEGAL ISSUES & RESOLUTIONS': 'Legal issues & resolutions',
     'LEGAL ISSUES': 'Legal issues',
     'HOW THE ISSUES WERE RESOLVED': 'How the issues were resolved',
     'OUTCOME': 'Outcome',

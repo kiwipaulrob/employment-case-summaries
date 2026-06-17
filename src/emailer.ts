@@ -325,7 +325,7 @@ function summaryToHtml(summary: string, _caseUrl: string, _pdfUrl: string | null
     'ERA FINDINGS': 'ERA Findings',
     'EMPLOYMENT COURT ISSUES RAISED': 'Employment Court Issues Raised',
     'HOW THE EMPLOYMENT COURT ISSUES WERE RESOLVED': 'How the Employment Court Issues Were Resolved',
-    'LEGAL ISSUES': 'Legal issues',
+    'LEGAL ISSUES & RESOLUTIONS': 'Legal issues & resolutions',
     'EXECUTIVE SUMMARY': 'Executive Summary',
     'HOW THE ISSUES WERE RESOLVED': 'How the issues were resolved',
     'OUTCOME': 'Outcome',
