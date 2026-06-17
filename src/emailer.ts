@@ -347,7 +347,46 @@ function summaryToHtml(summary: string, _caseUrl: string, _pdfUrl: string | null
     }
     const content = currentLines.join('\n').trim();
     if (content) {
-      if (content.includes('\n•') || content.startsWith('•') ||
+      // ── Legal issues & resolutions: bold heading + body per issue ──
+      if (currentLabel === 'LEGAL ISSUES & RESOLUTIONS' && /^\d+[.)]\s/.test(content)) {
+        const rawLines = content.split('\n');
+        const entries: string[] = [];
+        let current: string[] = [];
+        for (const line of rawLines) {
+          if (/^\d+[.)]\s/.test(line)) {
+            if (current.length) entries.push(current.join('\n').trim());
+            current = [line];
+          } else {
+            current.push(line);
+          }
+        }
+        if (current.length) entries.push(current.join('\n').trim());
+
+        const entryHtml = entries.map(entry => {
+          const numMatch = entry.match(/^(\d+[.)])\s*/);
+          const numberLabel = numMatch ? numMatch[1] : '';
+          const itemText = entry.replace(/^\d+[.)]\s*/, '').trim();
+          const escaped = escapeHtml(itemText);
+
+          const statusMatch = escaped.match(/(—\s*Status:\s*[^.。]*[.。]?)\s*/i);
+          if (statusMatch) {
+            const issuePart = escaped.slice(0, statusMatch.index);
+            const statusPart = statusMatch[1];
+            const resolutionPart = escaped.slice(statusMatch.index! + statusMatch[0].length).trim();
+
+            const format = (s: string) => convertBold(italicizeCaseCitations(s));
+            const heading = `<strong>${numberLabel} ${format(issuePart)} ${format(statusPart)}</strong>`;
+            let result = `<p style="margin-bottom:4px;">${heading}</p>`;
+            if (resolutionPart) {
+              result += `<p style="margin-top:0;">${format(resolutionPart.replace(/\n/g, '<br>'))}</p>`;
+            }
+            return result;
+          }
+          return `<p><strong>${numberLabel} ${convertBold(italicizeCaseCitations(escaped))}</strong></p>`;
+        }).join('');
+        parts.push(`<div class="section-body">${entryHtml}</div>`);
+      }
+      else if (content.includes('\n•') || content.startsWith('•') ||
           /^\d+[.)]\s/.test(content)) {
         const items = content
           .split('\n')

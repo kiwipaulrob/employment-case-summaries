@@ -190,23 +190,69 @@ export function summaryToPageHtml(summary: string): string {
     }
     const content = currentLines.join('\n').trim();
     if (content) {
-      if (/^\d+[.)]\s/.test(content) || content.includes('\n•') || content.startsWith('•')) {
+      // ── Legal issues & resolutions: bold heading + body per issue ──
+      if (currentLabel === 'LEGAL ISSUES & RESOLUTIONS' && /^\d+[.)]\s/.test(content)) {
+        // Group continuation lines into numbered entries
+        const rawLines = content.split('\n');
+        const entries: string[] = [];
+        let current: string[] = [];
+        for (const line of rawLines) {
+          if (/^\d+[.)]\s/.test(line)) {
+            if (current.length) entries.push(current.join('\n').trim());
+            current = [line];
+          } else {
+            current.push(line);
+          }
+        }
+        if (current.length) entries.push(current.join('\n').trim());
+
+        const entryHtml = entries.map(entry => {
+          const numMatch = entry.match(/^(\d+[.)])\s*/);
+          const numberLabel = numMatch ? numMatch[1] : '';
+          const itemText = entry.replace(/^\d+[.)]\s*/, '').trim();
+          const escaped = escapeHtml(itemText);
+
+          // Split on " — Status: <value>" — this is the divider between heading and body
+          const statusMatch = escaped.match(/(—\s*Status:\s*[^.。]*[.。]?)\s*/i);
+          if (statusMatch) {
+            const issuePart = escaped.slice(0, statusMatch.index);
+            const statusPart = statusMatch[1];
+            const resolutionPart = escaped.slice(statusMatch.index! + statusMatch[0].length).trim();
+
+            const heading = `<strong>${numberLabel} ${markdownInline(issuePart)} ${markdownInline(statusPart)}</strong>`;
+            let result = `<p style="margin-bottom:4px;">${heading}</p>`;
+            if (resolutionPart) {
+              result += `<p style="margin-top:0;">${markdownInline(resolutionPart.replace(/\n/g, '<br>'))}</p>`;
+            }
+            return result;
+          }
+          // No status marker — render whole item as heading
+          return `<p><strong>${numberLabel} ${markdownInline(escaped)}</strong></p>`;
+        }).join('');
+        parts.push(`<div class="sum-body">${entryHtml}</div>`);
+      }
+      else if (/^\d+[.)]\s/.test(content) || content.includes('\n•') || content.startsWith('•')) {
         const items = content
           .split('\n')
           .map(l => l.replace(/^(\d+[.)]|[•\-])\s*/, '').trim())
           .filter(Boolean);
-        const listHtml = items.map(i => `<li>${escapeHtml(i).replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>').replace(/\*(.+?)\*/g, '<em>$1</em>')}</li>`).join('');
+        const listHtml = items.map(i => `<li>${markdownInline(escapeHtml(i))}</li>`).join('');
         parts.push(`<div class="sum-body"><ol>${listHtml}</ol></div>`);
       } else {
         const paras = content.split(/\n{2,}/).map(p => p.trim()).filter(Boolean);
         const paraHtml = paras
-          .map(p => `<p>${escapeHtml(p).replace(/\n/g, '<br>').replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>').replace(/\*(.+?)\*/g, '<em>$1</em>')}</p>`)
+          .map(p => `<p>${markdownInline(escapeHtml(p).replace(/\n/g, '<br>'))}</p>`)
           .join('');
         parts.push(`<div class="sum-body">${paraHtml}</div>`);
       }
     }
     currentLines = [];
     currentLabel = '';
+  }
+
+  /** Apply **bold** and *italic* markdown to already-escaped HTML text. */
+  function markdownInline(text: string): string {
+    return text.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>').replace(/\*(.+?)\*/g, '<em>$1</em>');
   }
 
   for (const line of lines) {
