@@ -2717,7 +2717,7 @@ function extractTitleFromSummary(summary: string, citation?: string | null): str
         // Do not set found; fall through to "v" pattern below
       } else {
         const splitParties = (s: string): string[] =>
-          s.split(/\s*,\s*|\s+and\s+/i).map(x => x.trim()).filter(Boolean);
+          s.split(/\s*,\s*|\s*;\s*|\s+and\s+/i).map(x => x.trim()).filter(Boolean);
 
         leftNames = splitParties(applicantName);
         rightNames = splitParties(respondentName);
