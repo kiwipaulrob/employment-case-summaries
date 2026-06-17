@@ -23,7 +23,7 @@ const OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1/chat/completions';
  * The system prompt instructs the model on the summary format and tone.
  * This is the same regardless of model or case — edit here to change behaviour globally.
  */
-const SYSTEM_PROMPT = `CLASSIFICATION TAG (FIRST LINE ONLY): If this case is solely about fixing or apportioning costs, begin your summary with [COSTS ONLY] as the very first line. If it is an order or decision made by consent of both parties, begin with [CONSENT] as the very first line. Otherwise begin with no tag. The tag must be on its own line with no other text on that line.
+const SYSTEM_PROMPT = `CLASSIFICATION TAG (FIRST LINE ONLY): If this case is solely about fixing or apportioning costs, begin your summary with [COSTS ONLY] as the very first line. If it is an order or decision made by consent of both parties, begin with [CONSENT] as the very first line. If the primary purpose of this determination is to enforce an earlier decision of the Authority (e.g. compliance order, warrant to seize property, arrest order, or similar enforcement proceeding), begin with [ENFORCEMENT] as the very first line. Otherwise begin with no tag. The tag must be on its own line with no other text on that line.
 
 You are a legal analyst summarising decisions of the New Zealand Employment Relations Authority (ERA) for an audience of employment law practitioners and HR professionals.
 
@@ -103,6 +103,8 @@ Contribution conduct: [Brief 1-2 sentence description of the specific conduct th
 Penalties: [total dollar amount of statutory penalties ordered against the respondent, e.g. $3,000 — or nil]
 Costs: [dollar amount, e.g. $2,500, OR write "reserved" if the Authority deferred the costs decision, OR nil]
 Reinstatement: [yes or no]
+Reinstatement sought: [yes if any party applied for reinstatement, even if it was not ordered — otherwise no]
+Employee status: [yes if the determination considers whether the person was an employee or contractor and makes a finding on that issue — otherwise no]
 Outcome: [applicant if the employee/applicant succeeded; respondent if the employer/respondent succeeded; mixed if partial; none if no determination on merits]
 AWARDS_DATA_END`;
 

@@ -176,15 +176,13 @@ export default {
     // GET / — Landing page (paginated)
     if (request.method === 'GET' && url.pathname === '/') {
       const page = Math.max(1, parseInt(url.searchParams.get('page') ?? '1', 10));
-      const showCosts = url.searchParams.get('show_costs') === '1';
-      const showConsent = url.searchParams.get('show_consent') === '1';
       const PAGE_SIZE = 20;
       const offset = (page - 1) * PAGE_SIZE;
       const [cases, totalCount] = await Promise.all([
-        getRecentCasesPaged(env.DB, PAGE_SIZE, offset, showCosts, showConsent),
-        getCaseCountPaged(env.DB, showCosts, showConsent),
+        getRecentCasesPaged(env.DB, PAGE_SIZE, offset, false, false),
+        getCaseCountPaged(env.DB, false, false),
       ]);
-      return htmlResponse(homePage(cases, undefined, undefined, showCosts, showConsent, page, totalCount));
+      return htmlResponse(homePage(cases, undefined, page, totalCount));
     }
 
     // GET /awards — Public awards & damages statistics page
@@ -230,7 +228,7 @@ export default {
           getRecentCasesPaged(env.DB, 20, 0, false, false),
           getCaseCountPaged(env.DB, false, false),
         ]);
-        return htmlResponse(homePage(cases, 'Please enter a valid email address.', { name: name ?? '', email }, false, false, 1, totalCount));
+        return htmlResponse(homePage(cases, 'Please enter a valid email address.', 1, totalCount));
       }
 
       const { token, alreadyActive } = await addSubscriberPending(env.DB, email, name, preferences);
@@ -1665,6 +1663,78 @@ Rules:
         });
       } catch (err) {
         console.error(`ERA URL Upload error: ${err}`);
+        return jsonResponse({ success: false, error: String(err) }, 500);
+      }
+    }
+
+    // POST /admin/dashboard/refresh-summaries — Re-summarise all existing ERA cases with current prompts
+    // Runs in background (ctx.waitUntil). One case per tick — call repeatedly until done.
+    if (request.method === 'POST' && url.pathname === '/admin/dashboard/refresh-summaries') {
+      const session = getAdminCookie(request);
+      if (session !== env.ADMIN_SECRET) {
+        return new Response('Unauthorized', { status: 401 });
+      }
+      try {
+        // Get all ERA cases with PDF URLs, excluding already-tagged enforcement cases
+        const allCases = await env.DB.prepare(
+          `SELECT pdf_filename, pdf_url, case_url, title, member, date_published, category
+           FROM seen_cases WHERE source = 'ERA' AND pdf_url IS NOT NULL
+           AND summary NOT LIKE '[ENFORCEMENT]%'
+           ORDER BY processed_at DESC`
+        ).all<{ pdf_filename: string; pdf_url: string; case_url: string; title: string; member: string | null; date_published: string | null; category: string | null }>();
+
+        if (allCases.results.length === 0) {
+          return jsonResponse({ success: true, message: 'No cases to refresh.' });
+        }
+
+        // Process one case per call to stay within Worker limits
+        const c = allCases.results[0];
+        const remaining = allCases.results.length - 1;
+        const pdfUrl = c.pdf_url;
+        const pdfFilename = c.pdf_filename;
+        const caseId = pdfFilename.replace(/\.pdf$/i, '');
+
+        // Process this case in the background
+        ctx.waitUntil((async () => {
+          try {
+            const pdfContent = await getPdfContent(pdfUrl);
+            const caseListing = {
+              caseId, title: c.title, caseUrl: c.case_url,
+              pdfUrl, member: c.member, datePublished: c.date_published, category: c.category,
+            };
+            const summaryResult = await summariseCase(
+              caseListing, pdfContent, env.OPENROUTER_API_KEY, env.OPENROUTER_MODEL, env.DB
+            );
+            if (!summaryResult.success) {
+              console.error(`Refresh-summaries: failed for ${pdfFilename}: ${summaryResult.error}`);
+              await insertErrorLog(env.DB, 'error', 'refresh_summaries', `Failed: ${pdfFilename} - ${summaryResult.error}`);
+              return;
+            }
+            const betterTitle = extractTitleFromSummary(summaryResult.summary, c.category);
+            const { strippedSummary } = parseAwardsBlock(summaryResult.summary);
+            const processedCase: ProcessedCase = {
+              ...caseListing,
+              title: betterTitle || caseListing.title,
+              summary: strippedSummary,
+              processedAt: new Date().toISOString(),
+              source: 'ERA',
+            };
+            await markCaseSeen(env.DB, processedCase, 'ERA');
+            console.log(`Refresh-summaries: updated ${pdfFilename}`);
+          } catch (err) {
+            console.error(`Refresh-summaries: error for ${pdfFilename}: ${err}`);
+            await insertErrorLog(env.DB, 'error', 'refresh_summaries', `Error: ${pdfFilename} - ${err}`);
+          }
+        })());
+
+        return jsonResponse({
+          success: true,
+          processed: 1,
+          remaining,
+          message: `Processing ${allCases.results[0].title}. ${remaining} case(s) remaining. Call again to process next.`,
+        });
+      } catch (err) {
+        console.error(`Refresh-summaries error: ${err}`);
         return jsonResponse({ success: false, error: String(err) }, 500);
       }
     }

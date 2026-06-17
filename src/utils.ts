@@ -240,6 +240,8 @@ export interface AwardsData {
   costs_awarded: number | null;
   costs_awarded_text: string | null;  // raw text like "reserved", or null
   reinstatement: boolean;
+  reinstatement_sought: boolean;
+  employee_status: boolean;
   outcome: 'applicant' | 'respondent' | 'mixed' | 'none' | null;
   decision_date: string | null;        // YYYY-MM-DD if stated
   employment_tenure: string | null;    // e.g. "2.5 years", "6 months"
@@ -271,7 +273,8 @@ export function parseAwardsBlock(summary: string): { awardsData: AwardsData | nu
   const awardsData: AwardsData = {
     hhd_amount: null, lost_wages: null, lost_wages_weeks: null,
     weekly_wage: null, costs_awarded: null, costs_awarded_text: null,
-    reinstatement: false, outcome: null,
+    reinstatement: false, reinstatement_sought: false, employee_status: false,
+    outcome: null,
     decision_date: null, employment_tenure: null,
     contribution_applied: false, contribution_reduction: null,
     contribution_conduct: null, penalties: null,
@@ -304,6 +307,12 @@ export function parseAwardsBlock(summary: string): { awardsData: AwardsData | nu
       }
       case 'reinstatement':
         awardsData.reinstatement = /^yes$/i.test(value.trim());
+        break;
+      case 'reinstatement sought':
+        awardsData.reinstatement_sought = /^yes$/i.test(value.trim());
+        break;
+      case 'employee status':
+        awardsData.employee_status = /^yes$/i.test(value.trim());
         break;
       case 'outcome': {
         const v = value.trim().toLowerCase();

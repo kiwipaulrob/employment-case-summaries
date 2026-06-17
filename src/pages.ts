@@ -448,9 +448,6 @@ ${body}
 export function homePage(
   cases: DbSeenCase[],
   error?: string,
-  prefill?: { name?: string; email?: string; show_costs?: boolean; show_consent?: boolean },
-  showCosts = false,
-  showConsent = false,
   page = 1,
   totalCount = 0
 ): string {
@@ -497,13 +494,12 @@ export function homePage(
     ? `<div class="alert alert-error">${escapeHtml(error)}</div>`
     : '';
 
-  const nameVal = prefill?.name ? escapeHtml(prefill.name) : '';
-  const emailVal = prefill?.email ? escapeHtml(prefill.email) : '';
+  const nameVal = '';
+  const emailVal = '';
 
   // Pagination calculations
   const PAGE_SIZE = 20;
   const totalPages = totalCount > 0 ? Math.ceil(totalCount / PAGE_SIZE) : 1;
-  const filterParams = (showCosts ? '&show_costs=1' : '') + (showConsent ? '&show_consent=1' : '');
   const prevPage = page > 1 ? page - 1 : null;
   const nextPage = page < totalPages ? page + 1 : null;
   const startNum = totalCount > 0 ? (page - 1) * PAGE_SIZE + 1 : 0;
@@ -513,9 +509,9 @@ export function homePage(
 <div style="display:flex;align-items:center;justify-content:space-between;margin-top:24px;padding-top:16px;border-top:1px solid ${COLORS.border};flex-wrap:wrap;gap:10px;">
   <span style="font-size:13px;color:${COLORS.muted};">Showing ${startNum}–${endNum} of ${totalCount} determinations</span>
   <div style="display:flex;gap:8px;">
-    ${prevPage ? `<a href="/?page=${prevPage}${filterParams}" class="btn-secondary" style="font-size:13px;padding:7px 16px;">← Previous</a>` : '<span style="font-size:13px;color:#ccc;padding:7px 16px;border:1px solid #eee;border-radius:8px;">← Previous</span>'}
+    ${prevPage ? `<a href="/?page=${prevPage}" class="btn-secondary" style="font-size:13px;padding:7px 16px;">← Previous</a>` : '<span style="font-size:13px;color:#ccc;padding:7px 16px;border:1px solid #eee;border-radius:8px;">← Previous</span>'}
     <span style="font-size:13px;color:${COLORS.muted};padding:7px 4px;">Page ${page} of ${totalPages}</span>
-    ${nextPage ? `<a href="/?page=${nextPage}${filterParams}" class="btn-secondary" style="font-size:13px;padding:7px 16px;">Next →</a>` : '<span style="font-size:13px;color:#ccc;padding:7px 16px;border:1px solid #eee;border-radius:8px;">Next →</span>'}
+    ${nextPage ? `<a href="/?page=${nextPage}" class="btn-secondary" style="font-size:13px;padding:7px 16px;">Next →</a>` : '<span style="font-size:13px;color:#ccc;padding:7px 16px;border:1px solid #eee;border-radius:8px;">Next →</span>'}
   </div>
 </div>` : '';
 
@@ -524,17 +520,6 @@ export function homePage(
   Recent determinations
   <span class="section-count">${totalCount} total</span>
 </div>
-<form method="GET" action="/" class="filter-form">
-  <label class="filter-check">
-    <input type="checkbox" name="show_costs" value="1"${showCosts ? ' checked' : ''} onchange="this.form.submit()">
-    Show costs decisions
-  </label>
-  <label class="filter-check">
-    <input type="checkbox" name="show_consent" value="1"${showConsent ? ' checked' : ''} onchange="this.form.submit()">
-    Show consent orders
-  </label>
-  <noscript><button type="submit" class="btn-sm">Apply</button></noscript>
-</form>
 <p style="font-size:14px;color:${COLORS.muted};margin-bottom:20px;">
   AI-generated summaries &mdash; always refer to the full determination before acting.
 </p>
@@ -926,16 +911,6 @@ export function awardsPage(rows: CaseAwardWithCase[], pageMap?: Map<string, numb
     avg: penaltyArr.length > 0 ? Math.round(penaltyArr.reduce((a, b) => a + b, 0) / penaltyArr.length) : null,
     max: penaltyArr.length > 0 ? Math.max(...penaltyArr) : null,
   };
-
-  const costsWithData = rows.filter(r => r.costs_awarded != null && r.costs_awarded > 0).map(r => r.costs_awarded!);
-  const costsReserved = rows.filter(r => r.costs_awarded_text === 'reserved').length;
-  const costsStats = {
-    count: costsWithData.length,
-    avg: costsWithData.length > 0 ? Math.round(costsWithData.reduce((a, b) => a + b, 0) / costsWithData.length) : null,
-    reserved: costsReserved,
-  };
-
-  // ── Penalty distribution chart ────────────────────────────────────────────
   const penaltyBuckets = [
     { label: 'Nil', count: rows.filter(r => !r.penalties || r.penalties === 0).length },
     { label: '$1–5k',  count: penaltyArr.filter(n => n >= 1    && n <= 5000 ).length },
@@ -1036,6 +1011,14 @@ export function awardsPage(rows: CaseAwardWithCase[], pageMap?: Map<string, numb
       ? `<a href="${escapeHtml(r.pdf_url)}" target="_blank" rel="noopener" class="links-pill">PDF</a>`
       : null;
     const allLinks = [summaryLink, pdfLink, eraLink].filter(Boolean).join('<span class="links-sep"> | </span>') || '—';
+    // Three-state reinstatement icon
+    const reinstateIcon = r.reinstatement_sought
+      ? (r.reinstatement ? `<span style="color:${COLORS.success};font-weight:600;">✓</span>` : `<span style="color:${COLORS.error};font-weight:600;">✗</span>`)
+      : `<span style="color:${COLORS.muted};">—</span>`;
+    // Employee status indicator
+    const empStatusIcon = r.employee_status
+      ? `<span title="Considered employee/contractor status" style="font-size:11px;">⚖️</span>`
+      : '—';
     return `<tr>
   <td style="font-weight:500;max-width:320px;word-wrap:break-word;white-space:normal;">${escapeHtml(title)}</td>
   <td style="text-align:right;white-space:nowrap;">${fmtDollar(r.hhd_amount)}</td>
@@ -1043,8 +1026,8 @@ export function awardsPage(rows: CaseAwardWithCase[], pageMap?: Map<string, numb
   <td style="text-align:right;">${fmtWeeks(r.lost_wages_weeks)}</td>
   <td style="text-align:center;">${contribPct}</td>
   <td style="text-align:right;white-space:nowrap;">${fmtDollar(r.penalties)}</td>
-  <td style="text-align:right;white-space:nowrap;">${fmtDollar(r.costs_awarded)}</td>
-  <td style="text-align:center;">${r.reinstatement ? '✓' : '—'}</td>
+  <td style="text-align:center;">${reinstateIcon}</td>
+  <td style="text-align:center;">${empStatusIcon}</td>
   <td style="${outcomeColor[outcome] ?? ''}">${outcomeLabel[outcome] ?? '—'}</td>
   <td style="text-align:center;white-space:nowrap;font-size:11px;">${allLinks}</td>
 </tr>`;
@@ -1186,10 +1169,6 @@ export function awardsPage(rows: CaseAwardWithCase[], pageMap?: Map<string, numb
         <div class="awards-stat-value">${fmtDollar(penaltyStats.max)}</div>
         <div class="awards-stat-label">Highest penalty</div>
       </div>
-      <div class="awards-stat">
-        <div class="awards-stat-value">${costsStats.count}</div>
-        <div class="awards-stat-label">Costs awarded ${costsStats.reserved > 0 ? `(${costsStats.reserved} reserved)` : ''}</div>
-      </div>
     </div>
 
     <!-- Penalty distribution chart -->
@@ -1215,8 +1194,8 @@ export function awardsPage(rows: CaseAwardWithCase[], pageMap?: Map<string, numb
             <th class="right">Weeks</th>
             <th class="center">Contrib.</th>
             <th class="right">Penalty</th>
-            <th class="right">Costs</th>
             <th class="center">Reinstate</th>
+            <th class="center">Emp. status</th>
             <th>Outcome</th>
             <th class="center">Links</th>
           </tr>

@@ -514,6 +514,7 @@ export async function sendDigestToAll(
         const firstLine = (c.summary || '').split('\n')[0].trim();
         if (firstLine === '[COSTS ONLY]' && !prefs.show_costs) return false;
         if (firstLine === '[CONSENT]' && !prefs.show_consent) return false;
+        if (firstLine === '[ENFORCEMENT]') return false;
         return true;
       });
 

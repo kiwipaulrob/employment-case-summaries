@@ -123,6 +123,7 @@ export async function getRecentCasesPaged(
   let where = "WHERE summary IS NOT NULL AND summary NOT LIKE '(seeded%'";
   if (!showCosts) where += " AND summary NOT LIKE '[COSTS ONLY]%'";
   if (!showConsent) where += " AND summary NOT LIKE '[CONSENT]%'";
+  where += " AND summary NOT LIKE '[ENFORCEMENT]%'";
   const result = await db
     .prepare(`SELECT * FROM seen_cases ${where} ORDER BY processed_at DESC LIMIT ? OFFSET ?`)
     .bind(limit, offset)
@@ -142,6 +143,7 @@ export async function getCaseCountPaged(
   let where = "WHERE summary IS NOT NULL AND summary NOT LIKE '(seeded%'";
   if (!showCosts) where += " AND summary NOT LIKE '[COSTS ONLY]%'";
   if (!showConsent) where += " AND summary NOT LIKE '[CONSENT]%'";
+  where += " AND summary NOT LIKE '[ENFORCEMENT]%'";
   const result = await db
     .prepare(`SELECT COUNT(*) as count FROM seen_cases ${where}`)
     .first<{ count: number }>();
@@ -162,6 +164,7 @@ export async function getVisibleCaseOrder(
          AND summary NOT LIKE '(seeded%'
          AND summary NOT LIKE '[COSTS ONLY]%'
          AND summary NOT LIKE '[CONSENT]%'
+         AND summary NOT LIKE '[ENFORCEMENT]%'
        ORDER BY processed_at DESC`
     )
     .all<{ pdf_filename: string; processed_at: string }>();
@@ -686,6 +689,8 @@ export interface CaseAwardRow {
   costs_awarded: number | null;
   costs_awarded_text: string | null;
   reinstatement: number;
+  reinstatement_sought: number;
+  employee_status: number;
   outcome: string | null;
   extraction_method: string;
   created_at: string;
@@ -721,6 +726,8 @@ export async function insertCaseAward(
     costs_awarded: number | null;
     costs_awarded_text?: string | null;
     reinstatement: boolean;
+    reinstatement_sought?: boolean;
+    employee_status?: boolean;
     outcome: string | null;
     decision_date?: string | null;
     employment_tenure?: string | null;
@@ -735,10 +742,10 @@ export async function insertCaseAward(
     .prepare(`
       INSERT INTO case_awards
         (pdf_filename, source, hhd_amount, lost_wages, lost_wages_weeks, weekly_wage,
-         costs_awarded, costs_awarded_text, reinstatement, outcome, extraction_method,
+         costs_awarded, costs_awarded_text, reinstatement, reinstatement_sought, employee_status, outcome, extraction_method,
          decision_date, employment_tenure, contribution_applied, contribution_reduction,
          contribution_conduct, penalties)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(pdf_filename, source) DO UPDATE SET
         hhd_amount            = excluded.hhd_amount,
         lost_wages            = excluded.lost_wages,
@@ -747,6 +754,8 @@ export async function insertCaseAward(
         costs_awarded         = excluded.costs_awarded,
         costs_awarded_text    = excluded.costs_awarded_text,
         reinstatement         = excluded.reinstatement,
+        reinstatement_sought  = excluded.reinstatement_sought,
+        employee_status       = excluded.employee_status,
         outcome               = excluded.outcome,
         extraction_method     = excluded.extraction_method,
         decision_date         = excluded.decision_date,
@@ -762,6 +771,8 @@ export async function insertCaseAward(
       data.weekly_wage, data.costs_awarded,
       data.costs_awarded_text ?? null,
       data.reinstatement ? 1 : 0,
+      data.reinstatement_sought ? 1 : 0,
+      data.employee_status ? 1 : 0,
       data.outcome, extractionMethod,
       data.decision_date ?? null,
       data.employment_tenure ?? null,
@@ -789,6 +800,7 @@ export async function getCaseAwardRows(
       WHERE ca.source = ?
         AND sc.summary NOT LIKE '[COSTS ONLY]%'
         AND sc.summary NOT LIKE '[CONSENT]%'
+        AND sc.summary NOT LIKE '[ENFORCEMENT]%'
       ORDER BY sc.date_published DESC, sc.processed_at DESC
     `)
     .bind(source)
@@ -815,6 +827,7 @@ export async function getCasesWithoutAwards(
         AND sc.summary NOT LIKE 'Summary unavailable%'
         AND sc.summary NOT LIKE '[COSTS ONLY]%'
         AND sc.summary NOT LIKE '[CONSENT]%'
+        AND sc.summary NOT LIKE '[ENFORCEMENT]%'
         AND ca.id IS NULL
       ORDER BY sc.processed_at DESC
     `)
