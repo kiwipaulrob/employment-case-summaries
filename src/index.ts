@@ -1526,7 +1526,7 @@ Rules:
         return new Response('Unauthorized', { status: 401 });
       }
       try {
-        const body = await request.json() as { pdfUrl?: string; eraId?: number } | null;
+        const body = await request.json() as { pdfUrl?: string; eraId?: number; updateTitle?: boolean } | null;
         const pdfUrl = body?.pdfUrl?.trim();
         const eraId = body?.eraId ? Number(body.eraId) : null;
 
@@ -1568,6 +1568,18 @@ Rules:
           } catch (err) {
             console.warn(`ERA URL Upload: failed to scrape detail page for eraId=${eraId}: ${err}`);
           }
+        }
+
+        // If only updating title (updateTitle=true), skip summarisation
+        const updateOnly = body?.updateTitle === true;
+        if (updateOnly && titleFromScrape) {
+          await env.DB.prepare(
+            "UPDATE seen_cases SET title=?, member=?, case_url=? WHERE source='ERA' AND pdf_filename=?"
+          ).bind(titleFromScrape, memberFromScrape, caseUrl, pdfFilename).run();
+          return jsonResponse({
+            success: true, pdfFilename, title: titleFromScrape,
+            message: `Title updated to: ${titleFromScrape}`,
+          });
         }
 
         // Check if already in seen_cases — allow overwriting placeholder summaries
