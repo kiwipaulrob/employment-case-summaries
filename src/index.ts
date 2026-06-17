@@ -1526,8 +1526,9 @@ Rules:
         return new Response('Unauthorized', { status: 401 });
       }
       try {
-        const body = await request.json() as { pdfUrl?: string } | null;
+        const body = await request.json() as { pdfUrl?: string; eraId?: number } | null;
         const pdfUrl = body?.pdfUrl?.trim();
+        const eraId = body?.eraId ? Number(body.eraId) : null;
 
         if (!pdfUrl) {
           return jsonResponse({ error: 'Missing required field: pdfUrl' }, 400);
@@ -1550,6 +1551,25 @@ Rules:
           ? `[${citMatch[1]}] ${citMatch[2].toUpperCase()} ${citMatch[3]}`
           : null;
 
+        // If eraId is provided, scrape the ERA detail page for proper metadata
+        let titleFromScrape: string | null = null;
+        let memberFromScrape: string | null = null;
+        let dateFromScrape: string | null = null;
+        let caseUrl: string | null = null;
+        if (eraId && eraId > 0) {
+          try {
+            const detail = await scrapeEraDetailPage(eraId);
+            if (detail) {
+              titleFromScrape = detail.title;
+              memberFromScrape = detail.member;
+              dateFromScrape = detail.datePublished;
+              caseUrl = detail.caseUrl;
+            }
+          } catch (err) {
+            console.warn(`ERA URL Upload: failed to scrape detail page for eraId=${eraId}: ${err}`);
+          }
+        }
+
         // Check if already in seen_cases — allow overwriting placeholder summaries
         const existingRow = await env.DB.prepare(
           "SELECT summary FROM seen_cases WHERE source = 'ERA' AND pdf_filename = ?"
@@ -1570,11 +1590,11 @@ Rules:
         // Build a CaseListing with what we know
         const caseListing = {
           caseId,
-          title: category ?? caseId,
-          caseUrl: env.SOURCE_URL,       // ERA listing page (used as "View case summary" link)
+          title: titleFromScrape ?? category ?? caseId,
+          caseUrl: caseUrl ?? env.SOURCE_URL,
           pdfUrl,
-          member: null,
-          datePublished: null,
+          member: memberFromScrape,
+          datePublished: dateFromScrape,
           category,
         };
 
