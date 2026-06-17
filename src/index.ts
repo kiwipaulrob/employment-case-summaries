@@ -1675,68 +1675,72 @@ Rules:
         return new Response('Unauthorized', { status: 401 });
       }
       try {
-        // Get all ERA cases with PDF URLs, excluding already-tagged enforcement cases
+        // Accept ?offset=N to skip already-processed cases
+        const offset = Math.max(0, parseInt(url.searchParams.get('offset') ?? '0', 10));
+        const pageSize = 1;
+
+        // Get all ERA cases with PDF URLs, excluding enforcement cases
         const allCases = await env.DB.prepare(
           `SELECT pdf_filename, pdf_url, case_url, title, member, date_published, category
            FROM seen_cases WHERE source = 'ERA' AND pdf_url IS NOT NULL
            AND summary NOT LIKE '[ENFORCEMENT]%'
-           AND (processed_at IS NULL OR processed_at < datetime('now', '-2 minutes'))
-           ORDER BY processed_at DESC`
-        ).all<{ pdf_filename: string; pdf_url: string; case_url: string; title: string; member: string | null; date_published: string | null; category: string | null }>();
+           ORDER BY processed_at DESC
+           LIMIT ? OFFSET ?`
+        ).bind(pageSize, offset).all<{ pdf_filename: string; pdf_url: string; case_url: string; title: string; member: string | null; date_published: string | null; category: string | null }>();
 
         if (allCases.results.length === 0) {
-          return jsonResponse({ success: true, message: 'No cases to refresh.' });
+          return jsonResponse({ success: true, message: 'All cases refreshed. No more to process.' });
         }
 
-        // Process one case synchronously
+        // Also get total count for remaining calculation
+        const totalResult = await env.DB.prepare(
+          `SELECT COUNT(*) as count FROM seen_cases
+           WHERE source = 'ERA' AND pdf_url IS NOT NULL
+           AND summary NOT LIKE '[ENFORCEMENT]%'`
+        ).first<{ count: number }>();
+        const totalCount = totalResult?.count ?? 0;
+
         const c = allCases.results[0];
-        const pdfUrl = c.pdf_url;
-        const pdfFilename = c.pdf_filename;
-        const caseId = pdfFilename.replace(/\.pdf$/i, '');
-
-        try {
-          const pdfContent = await getPdfContent(pdfUrl);
-          const caseListing = {
-            caseId, title: c.title, caseUrl: c.case_url,
-            pdfUrl, member: c.member, datePublished: c.date_published, category: c.category,
-          };
-          const summaryResult = await summariseCase(
-            caseListing, pdfContent, env.OPENROUTER_API_KEY, env.OPENROUTER_MODEL, env.DB
-          );
-          if (!summaryResult.success) {
-            console.error(`Refresh-summaries: failed for ${pdfFilename}: ${summaryResult.error}`);
-            await insertErrorLog(env.DB, 'error', 'refresh_summaries', `Failed: ${pdfFilename} - ${summaryResult.error}`);
-            return jsonResponse({
-              success: false, error: `Summarisation failed for ${c.title}`,
-              remaining: allCases.results.length - 1,
-            });
+        const remaining = Math.max(0, totalCount - offset - 1);
+        const thisTitle = c.title;
+        ctx.waitUntil((async () => {
+          try {
+            const pdfContent = await getPdfContent(c.pdf_url);
+            const caseListing = {
+              caseId: c.pdf_filename.replace(/\.pdf$/i, ''),
+              title: c.title, caseUrl: c.case_url,
+              pdfUrl: c.pdf_url, member: c.member,
+              datePublished: c.date_published, category: c.category,
+            };
+            const summaryResult = await summariseCase(
+              caseListing, pdfContent, env.OPENROUTER_API_KEY, env.OPENROUTER_MODEL, env.DB
+            );
+            if (!summaryResult.success) {
+              console.error(`Refresh-summaries: failed for ${c.pdf_filename}: ${summaryResult.error}`);
+              await insertErrorLog(env.DB, 'error', 'refresh_summaries', `Failed: ${c.pdf_filename} - ${summaryResult.error}`);
+              return;
+            }
+            const betterTitle = extractTitleFromSummary(summaryResult.summary, c.category);
+            const { strippedSummary } = parseAwardsBlock(summaryResult.summary);
+            // Update existing row — keep original processed_at so ORDER BY position stays stable
+            await env.DB.prepare(
+              `UPDATE seen_cases SET title=?, summary=?, member=?, category=?
+               WHERE source='ERA' AND pdf_filename=?`
+            ).bind(
+              betterTitle || c.title, strippedSummary, c.member, c.category, c.pdf_filename
+            ).run();
+            console.log(`Refresh-summaries: updated ${c.pdf_filename}`);
+          } catch (err) {
+            console.error(`Refresh-summaries error for ${c.pdf_filename}: ${err}`);
+            await insertErrorLog(env.DB, 'error', 'refresh_summaries', `Error: ${c.pdf_filename} - ${err}`);
           }
-          const betterTitle = extractTitleFromSummary(summaryResult.summary, c.category);
-          const { strippedSummary } = parseAwardsBlock(summaryResult.summary);
-          await env.DB.prepare(
-            `UPDATE seen_cases SET title=?, summary=?, member=?, category=?, processed_at=?
-             WHERE source='ERA' AND pdf_filename=?`
-          ).bind(
-            betterTitle || c.title, strippedSummary, c.member, c.category,
-            new Date().toISOString(), pdfFilename
-          ).run();
-          console.log(`Refresh-summaries: updated ${pdfFilename}`);
+        })());
 
-          const remaining = allCases.results.length - 1;
-          return jsonResponse({
-            success: true, processed: 1, remaining,
-            message: `Updated ${c.title}. ${remaining} case(s) remaining.`,
-          });
-        } catch (err) {
-          console.error(`Refresh-summaries error for ${pdfFilename}: ${err}`);
-          await insertErrorLog(env.DB, 'error', 'refresh_summaries', `Error: ${pdfFilename} - ${err}`);
-          const remaining = allCases.results.length - 1;
-          return jsonResponse({
-            success: false, error: String(err),
-            remaining,
-            message: `Failed for ${c.title}. ${remaining} remaining. Skip and continue.`,
-          });
-        }
+        // Include this case's pdf_filename in a "skip" list to prevent re-picking it
+        return jsonResponse({
+          success: true, processed: 1, remaining,
+          message: `Processing ${thisTitle}. ${remaining} case(s) remaining. Wait ~30s then call again.`,
+        });
       } catch (err) {
         console.error(`Refresh-summaries error: ${err}`);
         return jsonResponse({ success: false, error: String(err) }, 500);
