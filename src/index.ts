@@ -1712,14 +1712,18 @@ Rules:
             }
             const betterTitle = extractTitleFromSummary(summaryResult.summary, c.category);
             const { strippedSummary } = parseAwardsBlock(summaryResult.summary);
-            const processedCase: ProcessedCase = {
-              ...caseListing,
-              title: betterTitle || caseListing.title,
-              summary: strippedSummary,
-              processedAt: new Date().toISOString(),
-              source: 'ERA',
-            };
-            await markCaseSeen(env.DB, processedCase, 'ERA');
+            // Update existing row in-place (INSERT OR IGNORE won't update existing rows)
+            await env.DB.prepare(
+              `UPDATE seen_cases SET title=?, summary=?, member=?, category=?, processed_at=?
+               WHERE source='ERA' AND pdf_filename=?`
+            ).bind(
+              betterTitle || c.title,
+              strippedSummary,
+              c.member,
+              c.category,
+              new Date().toISOString(),
+              pdfFilename
+            ).run();
             console.log(`Refresh-summaries: updated ${pdfFilename}`);
           } catch (err) {
             console.error(`Refresh-summaries: error for ${pdfFilename}: ${err}`);
