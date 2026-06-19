@@ -12,7 +12,7 @@
 
 import type { CaseListing, OpenRouterRequest, OpenRouterResponse, SummaryResult } from './types';
 import type { PdfContent } from './pdf';
-import { truncateToTokenBudget } from './pdf';
+import { truncateToTokenBudget, countEraParagraphs } from './pdf';
 import { sleep, stripLlmArtifacts } from './utils';
 
 const OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1/chat/completions';
@@ -31,7 +31,11 @@ CRITICAL: Completeness is your ABSOLUTE PRIMARY goal. You must capture EVERY leg
 
 For each determination you receive, produce a structured summary in EXACTLY the following format. Do not add extra sections, commentary, or preamble before or after the structured output.
 
----FORMAT START---
+|---FORMAT START---
+
+
+EXECUTIVE SUMMARY
+[2–3 sentence summary: who the parties are, the nature of the dispute, the key legal questions, and the overall outcome. This is the reader's quick overview — write it after you have drafted the full summary below.]
 
 PARTIES
 Applicant: [name and role, e.g. "Jane Smith (employee)"]
@@ -46,14 +50,22 @@ CRITICAL: Extract representative names EXACTLY as stated in the determination. I
 FACTS
 [4–6 sentences. Describe: the nature and duration of the employment relationship, the key chronological events leading to the dispute, clearly distinguish undisputed facts from facts in dispute, identify any procedural history (e.g. grievance, mediation), and state the key arguments each party advanced. Use plain language. Be accurate and conservative — do not infer beyond what is stated.]
 
-LEGAL ISSUES & RESOLUTIONS
-[For EACH issue identified in the determination, output a single numbered entry that BOTH states the issue with its status AND explains how it was resolved. Do not list issues separately from resolutions.]
+|LEGAL ISSUES & RESOLUTIONS
+|[For EACH issue identified in the determination, output a single numbered entry. Put the issue statement and status on ONE LINE, with the resolution text starting on the NEXT LINE (two-line format per issue).]
 
-1. [Full statement of Issue 1 — status: Established/Dismissed/Not reached/Partially established/Conditional — then 2–4 sentences explaining: (a) the applicable statutory or common law test or principles; (b) how (or whether) the Authority applied the evidence to that test; (c) any binding authorities or precedents cited; (d) the Authority's conclusion and reasoning. For issues not reached, explain why they were not reached.]
+1. [Full statement of Issue 1 — Status: Established/Dismissed/Not reached/Partially established/Conditional (paras [N]-[M]).]
+   [2–4 sentences explaining: (a) the applicable statutory or common law test or principles; (b) how (or whether) the Authority applied the evidence to that test; (c) any binding authorities or precedents cited; (d) the Authority's conclusion and reasoning. For issues not reached, explain why they were not reached.]
 
-2. [Issue 2 — status and resolution — 2–4 sentences]
+2. [Issue 2 — Status: X (paras [N]).]
+   [2–4 sentences resolution text, starting on a new line.]
 
 3. [Continue for ALL issues in the determination. Include preliminary, threshold, secondary, procedural, and unsuccessful issues. Every issue must have both a status flag AND a resolution paragraph.]
+
+IMPORTANT — Paragraph citations: After each issue's status flag, include the relevant paragraph numbers from the determination in parentheses, e.g. "(paras [15]-[18], [42])". Only cite paragraph numbers that are explicitly present in the document text (marked as [N]). Do not invent paragraph references. If you cannot identify specific paragraphs, omit the citation. Examples:
+  — Status: Established (paras [45]-[52], [78]).
+  — Status: Dismissed (paras [22]-[25]).
+  — Status: Not reached (paras [15]-[18]).
+  — Status: Partially established (paras [33]-[40], [61]-[63]).
 
 OUTCOME
 [One sentence stating the overall result — e.g. "The claim was upheld in full / dismissed / partially upheld (X issue upheld, Y issue dismissed)."]
@@ -61,26 +73,29 @@ OUTCOME
 |REMEDY
 |[Itemise all remedies ordered: e.g. "Compensation: $X,XXX (lost wages); $X,XXX (personal grievance); Interest: $ X,XXX; Reinstatement: [Y/N]; Reimbursement of costs: $X,XXX; Other conditions: [describe]." If no remedy was ordered, write "None ordered." If the determination is provisional, interim, conditional, or subject to later hearing, note this explicitly.]
 
-Do not add an "Executive Summary", "Overview", or any preamble before the PARTIES section — start directly with PARTIES.
+Do not add extra sections or commentary before the EXECUTIVE SUMMARY section or after the REMEDY section — start directly with EXECUTIVE SUMMARY and end with REMEDY.
 
 ---FORMAT END---
 
 COMPLETENESS CHECK
 Before submitting your response, verify:
+0. The EXECUTIVE SUMMARY section is present and gives a concise overview of the parties, dispute, and outcome.
 1. ALL issues mentioned in the determination are listed (do not filter for importance or outcome).
 2. Every issue includes a status flag: (Established), (Dismissed), (Not reached), (Partially established), or (Conditional).
-3. Every issue in LEGAL ISSUES & RESOLUTIONS includes both the issue statement AND a detailed resolution paragraph.
+3. Every issue in LEGAL ISSUES & RESOLUTIONS uses the TWO-LINE format: the issue statement + status on line 1, and the resolution paragraph beginning on line 2.
 4. Every resolution explains the test, how it was applied, authorities cited, and the reasoning (not just the conclusion).
 5. Issues that were not reached include explicit explanation of why they were not reached.
 6. The REMEDY section itemises all compensation types, amounts, conditions, interim/final status, or notes "None ordered."
 7. No issue, fact, or legal holding from the determination is omitted.
 8. ANTI-HALLUCINATION CHECK: For the REPRESENTATIVES section, verify that every name and title is explicitly stated in the document. If a party had "No appearance", write exactly "No appearance". Do not invent names or speculate about representation that is not clearly stated.
+9. PARAGRAPH CITATION CHECK: If you included paragraph references like (paras [N]-[M]), verify that those paragraph numbers actually exist in the document text. Do not invent paragraph numbers. If unsure, omit the citation entirely.
+10. SEPARATION CHECK: Each issue heading is on its own line ending with a period after the paragraph citation. The resolution text starts on the next line. No two issue headings run together on the same line.
 
 Additional instructions:
 - Use plain, accessible English. Do not assume the reader is a lawyer.
 - Be factually accurate. Do not speculate about facts or law not stated in the document.
 - CRITICAL: Never invent or hallucinate information. If a detail is not in the document, do not guess — write "Not provided" or leave it blank. This applies especially to representative names, party details, and legal authorities.
-- Keep the total summary to approximately 500–800 words (longer is acceptable if necessary for completeness).
+- Keep the total summary to approximately 600–1000 words (longer is acceptable if necessary for completeness).
 - Prioritise completeness over brevity. Include all material issues and resolutions.
 - The determination text may contain formatting artifacts from PDF extraction. Do your best to extract meaningful content — ignore garbled characters, page numbers, headers, footers, and other visual artifacts that don't affect meaning.
 
@@ -272,6 +287,13 @@ export async function summariseCase(
     max_tokens: 8000, // 8000 tokens to capture very long/complex cases with many legal issues
   };
 
+  // Count paragraphs from extracted PDF text (before truncation)
+  let paragraphCount: number | null = null;
+  if (pdfContent.strategy === 'text' && pdfContent.text) {
+    paragraphCount = countEraParagraphs(pdfContent.text);
+    console.log(`[summariser] Case ${caseData.caseId}: counted ${paragraphCount} paragraphs`);
+  }
+
   for (let attempt = 1; attempt <= 2; attempt++) {
     try {
       let summary = await callOpenRouter(request, apiKey);
@@ -282,13 +304,14 @@ export async function summariseCase(
           summary: `Summary unavailable — the model could not access or read the determination. [View full determination](${caseData.caseUrl})`,
           success: false,
           error: 'Model returned SUMMARY_UNAVAILABLE',
+          paragraphCount,
         };
       }
 
       // Strip LLM preambles and artifacts
       summary = stripLlmArtifacts(summary);
 
-      return { caseId: caseData.caseId, summary, success: true };
+      return { caseId: caseData.caseId, summary, success: true, paragraphCount };
     } catch (err) {
       if (attempt === 1) {
         console.warn(
@@ -313,6 +336,7 @@ export async function summariseCase(
     caseId: caseData.caseId,
     summary: `Summary unavailable. [View full determination](${caseData.caseUrl})`,
     success: false,
+    paragraphCount,
   };
 }
 

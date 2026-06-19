@@ -262,7 +262,7 @@ function buildCaseHtml(c: ProcessedCase, isFirst: boolean): string {
 
   // Build member sentence if available
   const memberSentence = member
-    ? `<p class="case-member" style="font-size: 13px; color: #555; font-family: Arial, sans-serif; margin: -4px 0 4px 0;">This case was determined by ${escapeHtml(member)}.</p>`
+    ? `<p class="case-member" style="font-size: 13px; color: #555; font-family: Arial, sans-serif; margin: -4px 0 4px 0;">This case was determined by ${escapeHtml(member)}${c.paragraphCount ? ` (${c.paragraphCount} paragraphs)` : ''}.</p>`
     : '';
 
   return `<div class="case-block" style="padding: ${topPadding} 0 40px 0;">
