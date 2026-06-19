@@ -552,6 +552,38 @@ export function getDashboardHtml(status: {
           <div id="rescan-status"></div>
         </div>
       </div>
+
+      <div class="card">
+        <div class="card-title">Selective Re-summarise</div>
+        <p style="color: #666; margin-bottom: 1.5rem;">Pick specific cases to re-summarise with the current prompt. Overwrites existing summaries in place — no deletion or re-scraping.</p>
+        <div>
+          <button type="button" class="button" onclick="loadCaseList()" id="load-cases-btn">Load Case List</button>
+          <div id="selective-resummarise-area" style="display:none; margin-top: 1rem;">
+            <div style="display: flex; gap: 1rem; margin-bottom: 0.75rem;">
+              <button type="button" class="button" style="background:#64748b;" onclick="selectAllCases(true)">Select All</button>
+              <button type="button" class="button" style="background:#64748b;" onclick="selectAllCases(false)">Deselect All</button>
+            </div>
+            <div id="case-list-container" style="max-height:400px; overflow-y:auto; border:1px solid #e0e0e0; border-radius:6px;">
+              <table style="width:100%; border-collapse:collapse; font-size:13px;">
+                <thead style="position:sticky; top:0; background:#f1f5f9; z-index:1;">
+                  <tr>
+                    <th style="padding:8px; text-align:left; width:30px;"><input type="checkbox" onclick="selectAllCases(this.checked)" id="select-all-toggle"></th>
+                    <th style="padding:8px; text-align:left;">Title</th>
+                    <th style="padding:8px; text-align:left; width:100px;">Date</th>
+                    <th style="padding:8px; text-align:left; width:120px;">Member</th>
+                    <th style="padding:8px; text-align:left; width:60px;">Paras</th>
+                  </tr>
+                </thead>
+                <tbody id="case-list-body"></tbody>
+              </table>
+            </div>
+            <div style="margin-top: 1rem;">
+              <button type="button" class="button" onclick="resummariseSelected()" id="resummarise-btn">Re-summarise Selected (<span id="selected-count">0</span>)</button>
+            </div>
+            <div id="selective-status" style="margin-top: 1rem; font-size: 13px;"></div>
+          </div>
+        </div>
+      </div>
     </div>
 
     <!-- Diagnostics Tab -->
@@ -1455,6 +1487,89 @@ export function getDashboardHtml(status: {
       } catch (err) {
         statusEl.className = 'alert alert-error';
         statusEl.innerHTML = '<strong>❌ Error:</strong> ' + err.message;
+      }
+    }
+
+    // ─── Selective Re-summarise ─────────────────────────────────────────────
+    let loadedCases = [];
+
+    async function loadCaseList() {
+      const btn = document.getElementById('load-cases-btn');
+      const area = document.getElementById('selective-resummarise-area');
+      btn.textContent = '⏳ Loading...';
+      btn.disabled = true;
+      try {
+        const resp = await fetch('/admin/seen-cases?limit=100', { credentials: 'same-origin' });
+        const data = await resp.json();
+        loadedCases = (data.cases || []).filter(c => !c.pdf_filename.startsWith('placeholder'));
+        const tbody = document.getElementById('case-list-body');
+        tbody.innerHTML = loadedCases.map(c => {
+          const date = c.date_published || c.processed_at?.slice(0,10) || '—';
+          const member = c.member || '—';
+          const paras = c.paragraph_count ? c.paragraph_count + 'p' : '—';
+          return '<tr style="border-bottom:1px solid #f0f0f0;">' +
+            '<td style="padding:6px;"><input type="checkbox" data-filename="' + c.pdf_filename + '" onchange="updateSelectedCount()"></td>' +
+            '<td style="padding:6px;">' + (c.title || c.pdf_filename) + '</td>' +
+            '<td style="padding:6px; color:#888;">' + date + '</td>' +
+            '<td style="padding:6px; color:#888;">' + member + '</td>' +
+            '<td style="padding:6px; color:#888;">' + paras + '</td>' +
+            '</tr>';
+        }).join('');
+        area.style.display = 'block';
+        btn.textContent = 'Reload Case List';
+        btn.disabled = false;
+      } catch (err) {
+        btn.textContent = 'Load Case List';
+        btn.disabled = false;
+        alert('Failed to load cases: ' + err.message);
+      }
+    }
+
+    function selectAllCases(checked) {
+      document.querySelectorAll('#case-list-body input[type="checkbox"]').forEach(cb => { cb.checked = checked; });
+      updateSelectedCount();
+    }
+
+    function updateSelectedCount() {
+      const checked = document.querySelectorAll('#case-list-body input[type="checkbox"]:checked');
+      document.getElementById('selected-count').textContent = checked.length;
+    }
+
+    async function resummariseSelected() {
+      const checked = document.querySelectorAll('#case-list-body input[type="checkbox"]:checked');
+      const filenames = Array.from(checked).map(cb => cb.dataset.filename);
+      if (filenames.length === 0) { alert('Select at least one case.'); return; }
+      if (filenames.length > 20) { alert('Maximum 20 cases per batch.'); return; }
+
+      const btn = document.getElementById('resummarise-btn');
+      const status = document.getElementById('selective-status');
+      btn.disabled = true;
+      btn.textContent = '⏳ Re-summarising ' + filenames.length + ' case(s)...';
+      status.innerHTML = '<em>Processing ' + filenames.length + ' case(s). This takes ~60s per case — please wait...</em>';
+
+      try {
+        const resp = await fetch('/admin/dashboard/resummarise-selected', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ pdfFilenames: filenames }),
+        });
+        const data = await resp.json();
+        if (data.success) {
+          let html = '<strong>✓ ' + data.message + '</strong><ul style="margin-top:0.5rem;list-style:none;">';
+          for (const r of data.results) {
+            html += '<li>' + (r.success ? '✅' : '❌') + ' ' + r.pdfFilename + (r.error ? ' — ' + r.error : '') + '</li>';
+          }
+          html += '</ul>';
+          status.innerHTML = html;
+        } else {
+          status.innerHTML = '❌ ' + (data.error || 'Failed');
+        }
+      } catch (err) {
+        status.innerHTML = '❌ ' + err.message;
+      } finally {
+        btn.disabled = false;
+        updateSelectedCount();
       }
     }
 

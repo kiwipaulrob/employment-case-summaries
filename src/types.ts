@@ -21,6 +21,7 @@ export interface ProcessedCase extends CaseListing {
   processedAt: string;   // ISO 8601 UTC timestamp
   source: string;        // 'ERA' or 'EMPLOYMENT_COURT'
   summaryVersion?: string | null; // Prompt version used to generate this summary (updated_at timestamp)
+  paragraphCount?: number | null;
 }
 
 // ─── Database rows ────────────────────────────────────────────────────────────
@@ -38,6 +39,7 @@ export interface DbSeenCase {
   summary: string | null;
   processed_at: string;
   summary_version: string | null;
+  paragraph_count: number | null;
 }
 
 export interface DbSubscriber {
@@ -140,4 +142,5 @@ export interface SummaryResult {
   success: boolean;
   error?: string;
   judgeName?: string | null;  // Extracted judge name for EC cases
+  paragraphCount?: number | null;  // Count of [N] paragraph markers in the PDF
 }

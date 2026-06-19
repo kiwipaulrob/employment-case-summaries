@@ -153,15 +153,13 @@ async function extractTextWithPython(pdfBytes: ArrayBuffer, env: Env): Promise<s
 export default {
   // ─── Cron trigger ────────────────────────────────────────────────────────────
 
-  async scheduled(_event: ScheduledEvent, env: Env, ctx: ExecutionContext): Promise<void> {
-    ctx.waitUntil(
-      Promise.all([
-        runDigest(env),
-        deleteStalePendingSubscribers(env.DB, 48).then(n => {
-          if (n > 0) console.log(`ERA Digest: purged ${n} stale pending subscriber(s)`);
-        }),
-      ])
-    );
+  async scheduled(_event: ScheduledEvent, env: Env, _ctx: ExecutionContext): Promise<void> {
+    await Promise.all([
+      runDigest(env),
+      deleteStalePendingSubscribers(env.DB, 48).then(n => {
+        if (n > 0) console.log(`ERA Digest: purged ${n} stale pending subscriber(s)`);
+      }),
+    ]);
   },
 
   // ─── HTTP handler ─────────────────────────────────────────────────────────────
@@ -936,6 +934,112 @@ export default {
     }
 
     // ──────────────────────────────────────────────────────────────────────────
+    // POST /admin/dashboard/resummarise-selected
+    //
+    // Re-summarises specific cases by pdf_filename without deleting them first.
+    // Uses the upload-era-url overwrite pattern (UPDATE, not DELETE+re-scrape).
+    // Processes cases synchronously, one by one, and returns per-case results.
+    //
+    // Body: { "pdfFilenames": ["2026-NZERA-379.pdf", "2026-NZERA-326.pdf"] }
+    // Max 20 per call.
+    // ──────────────────────────────────────────────────────────────────────────
+    if (request.method === 'POST' && url.pathname === '/admin/dashboard/resummarise-selected') {
+      if (!isAuthenticated(request, env)) {
+        return new Response('Unauthorized', { status: 401 });
+      }
+      try {
+        const body = await request.json() as { pdfFilenames?: string[] } | null;
+        const pdfFilenames = body?.pdfFilenames ?? [];
+        if (pdfFilenames.length === 0) {
+          return jsonResponse({ error: 'No pdf_filenames provided.' }, 400);
+        }
+        if (pdfFilenames.length > 20) {
+          return jsonResponse({ error: 'Maximum 20 cases per call.' }, 400);
+        }
+
+        // Look up case metadata for all requested files
+        const placeholders = pdfFilenames.map(() => '?').join(',');
+        const cases = await env.DB.prepare(
+          `SELECT pdf_filename, pdf_url, case_url, title, member, date_published, category
+           FROM seen_cases WHERE source = 'ERA' AND pdf_filename IN (${placeholders})`
+        ).bind(...pdfFilenames).all<{
+          pdf_filename: string; pdf_url: string; case_url: string;
+          title: string; member: string | null;
+          date_published: string | null; category: string | null;
+        }>();
+
+        const results: { pdfFilename: string; success: boolean; error?: string }[] = [];
+        let processed = 0;
+        let failed = 0;
+
+        for (const c of cases.results) {
+          try {
+            if (!c.pdf_url) {
+              results.push({ pdfFilename: c.pdf_filename, success: false, error: 'No PDF URL' });
+              failed++;
+              continue;
+            }
+
+            const pdfContent = await getPdfContent(c.pdf_url);
+            const caseListing: CaseListing = {
+              caseId: c.pdf_filename.replace(/\.pdf$/i, ''),
+              title: c.title,
+              caseUrl: c.case_url,
+              pdfUrl: c.pdf_url,
+              member: c.member,
+              datePublished: c.date_published,
+              category: c.category,
+            };
+            const summaryResult = await summariseCase(
+              caseListing, pdfContent, env.OPENROUTER_API_KEY, env.OPENROUTER_MODEL, env.DB
+            );
+            if (!summaryResult.success) {
+              results.push({ pdfFilename: c.pdf_filename, success: false, error: summaryResult.error ?? 'Summarisation failed' });
+              failed++;
+              continue;
+            }
+
+            const { awardsData, strippedSummary } = parseAwardsBlock(summaryResult.summary);
+            const betterTitle = extractTitleFromSummary(strippedSummary, c.category);
+
+            // Update the existing row (preserve member via COALESCE)
+            await env.DB.prepare(
+              `UPDATE seen_cases SET title=?, summary=?, member=COALESCE(?, member), category=?,
+               processed_at=?, paragraph_count=?
+               WHERE source='ERA' AND pdf_filename=?`
+            ).bind(
+              betterTitle || c.title, strippedSummary, c.member,
+              c.category, new Date().toISOString(),
+              summaryResult.paragraphCount ?? null, c.pdf_filename
+            ).run();
+
+            // Store awards data if extracted
+            if (awardsData) {
+              await insertCaseAward(env.DB, c.pdf_filename, 'ERA', awardsData, 'prompt_structured')
+                .catch(e => console.warn(`Resummarise-selected: failed to insert awards for ${c.pdf_filename}: ${e}`));
+            }
+
+            results.push({ pdfFilename: c.pdf_filename, success: true });
+            processed++;
+          } catch (err) {
+            results.push({ pdfFilename: c.pdf_filename, success: false, error: String(err) });
+            failed++;
+          }
+        }
+
+        return jsonResponse({
+          success: true,
+          processed,
+          failed,
+          results,
+          message: `Re-summarised ${processed} case(s)${failed > 0 ? `, ${failed} failed` : ''}.`,
+        });
+      } catch (err) {
+        return jsonResponse({ error: String(err) }, 500);
+      }
+    }
+
+    // ──────────────────────────────────────────────────────────────────────────
     // POST /admin/dashboard/backfill-era
     //
     // Option A — Multi-page ERA backfill (added 8 June 2026).
@@ -1129,7 +1233,7 @@ Rules:
 
             // Call LLM for extraction
             const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 30000);
+            const timeoutId = setTimeout(() => controller.abort(), 60000);
             let jsonText: string;
             try {
               const resp = await fetch('https://openrouter.ai/api/v1/chat/completions', {
@@ -1582,8 +1686,8 @@ Rules:
 
         // Check if already in seen_cases — allow overwriting placeholder summaries
         const existingRow = await env.DB.prepare(
-          "SELECT summary FROM seen_cases WHERE source = 'ERA' AND pdf_filename = ?"
-        ).bind(pdfFilename).first<{summary: string}>();
+          "SELECT summary, member FROM seen_cases WHERE source = 'ERA' AND pdf_filename = ?"
+        ).bind(pdfFilename).first<{summary: string; member: string | null}>();
 
         const isPlaceholder = existingRow
           ? (existingRow.summary ?? '').startsWith('(seeded')
@@ -1611,23 +1715,31 @@ Rules:
 
         // Download and extract PDF using Strategy B (FlateDecode — works for all ERA PDFs)
         const pdfContent = await getPdfContent(pdfUrl);
-
+        
         // Summarise with ERA prompt (read from D1 at runtime)
         const summaryResult = await summariseCase(
           caseListing, pdfContent, env.OPENROUTER_API_KEY, env.OPENROUTER_MODEL, env.DB
         );
 
         if (!summaryResult.success) {
+          const errMsg = summaryResult.error || 'Summarisation failed or returned empty result';
+          console.error(`ERA URL Upload: summarisation failed for ${pdfFilename}: ${errMsg}`);
           return jsonResponse({
             success: false,
-            error: 'Summarisation failed or returned empty result',
+            error: errMsg,
           }, 500);
         }
 
         const betterTitle = extractTitleFromSummary(summaryResult.summary, category);
         
-        // Strip AWARDS_DATA block before storing
-        const { strippedSummary } = parseAwardsBlock(summaryResult.summary);
+        // Strip AWARDS_DATA block before storing and extract awards
+        const { awardsData, strippedSummary } = parseAwardsBlock(summaryResult.summary);
+        
+        // Preserve existing member from DB if eraId wasn't provided (no scrape)
+        let effectiveMember = memberFromScrape;
+        if (!effectiveMember) {
+          effectiveMember = existingRow?.member ?? null;
+        }
         
         const processedCase: ProcessedCase = {
           ...caseListing,
@@ -1635,23 +1747,31 @@ Rules:
           summary: strippedSummary,
           processedAt: new Date().toISOString(),
           source: 'ERA',
+          paragraphCount: summaryResult.paragraphCount ?? null,
         };
 
         if (isPlaceholder || overwrite) {
           // Overwrite the existing placeholder row with the real summary
           await env.DB.prepare(
-            `UPDATE seen_cases SET title=?, summary=?, member=?, category=?, processed_at=?
+            `UPDATE seen_cases SET title=?, summary=?, member=COALESCE(?, member), category=?, processed_at=?, paragraph_count=?
              WHERE source='ERA' AND pdf_filename=?`
           ).bind(
             processedCase.title,
             processedCase.summary,
-            processedCase.member ?? null,
+            effectiveMember,
             processedCase.category ?? null,
             processedCase.processedAt,
+            processedCase.paragraphCount ?? null,
             pdfFilename
           ).run();
         } else {
           await markCaseSeen(env.DB, processedCase, 'ERA');
+        }
+        
+        // Store awards data if extracted
+        if (awardsData) {
+          await insertCaseAward(env.DB, pdfFilename, 'ERA', awardsData, 'prompt_structured')
+            .catch(e => console.warn(`ERA URL Upload: failed to insert awards for ${pdfFilename}: ${e}`));
         }
         console.log(`ERA URL Upload: stored ${caseId} (${betterTitle || caseListing.title})`);
 
@@ -1722,14 +1842,20 @@ Rules:
               return;
             }
             const betterTitle = extractTitleFromSummary(summaryResult.summary, c.category);
-            const { strippedSummary } = parseAwardsBlock(summaryResult.summary);
+            const { awardsData, strippedSummary } = parseAwardsBlock(summaryResult.summary);
             // Update existing row — keep original processed_at so ORDER BY position stays stable
             await env.DB.prepare(
-              `UPDATE seen_cases SET title=?, summary=?, member=?, category=?
+              `UPDATE seen_cases SET title=?, summary=?, member=?, category=?, paragraph_count=?
                WHERE source='ERA' AND pdf_filename=?`
             ).bind(
-              betterTitle || c.title, strippedSummary, c.member, c.category, c.pdf_filename
+              betterTitle || c.title, strippedSummary, c.member, c.category,
+              summaryResult.paragraphCount ?? null, c.pdf_filename
             ).run();
+            // Store awards data if extracted
+            if (awardsData) {
+              await insertCaseAward(env.DB, c.pdf_filename, 'ERA', awardsData, 'prompt_structured')
+                .catch(e => console.warn(`Refresh-summaries: failed to insert awards for ${c.pdf_filename}: ${e}`));
+            }
             console.log(`Refresh-summaries: updated ${c.pdf_filename}`);
           } catch (err) {
             console.error(`Refresh-summaries error for ${c.pdf_filename}: ${err}`);
@@ -2310,6 +2436,7 @@ async function runDigest(env: Env, force = false, limit = 3): Promise<RunResult>
 
       let summary: string;
       let success = true;
+      let paragraphCount: number | null = null;
 
       if (!c.pdfUrl) {
         summary = `Summary unavailable — no PDF link found. [View determination](${c.caseUrl})`;
@@ -2320,6 +2447,7 @@ async function runDigest(env: Env, force = false, limit = 3): Promise<RunResult>
           const summaryResult = await summariseCase(c, pdfContent, env.OPENROUTER_API_KEY, env.OPENROUTER_MODEL, env.DB);
           summary = summaryResult.summary;
           success = summaryResult.success;
+          paragraphCount = summaryResult.paragraphCount ?? null;
           if (!success) result.failed++;
         } catch (err) {
           const errMsg = `Pipeline failed for ${c.caseId}: ${err}`;
@@ -2360,6 +2488,7 @@ async function runDigest(env: Env, force = false, limit = 3): Promise<RunResult>
           processedAt: new Date().toISOString(),
           source: 'ERA',
           summaryVersion: promptVersion,
+          paragraphCount,
         };
         processedCases.push(processedCase);
         // NOTE: markCaseSeen is NOT called here. Cases are marked as seen only AFTER

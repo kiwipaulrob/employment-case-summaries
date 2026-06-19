@@ -535,3 +535,25 @@ export function truncateToTokenBudget(text: string, maxTokens = 40_000): string 
     'The above represents the first portion of the determination only.]'
   );
 }
+
+/**
+ * Counts the numbered paragraphs in ERA determination text.
+ * ERA PDFs use bracketed paragraph markers like [1], [2] ... [N].
+ * This counts all markers [N] where N is 1–500, regardless of what
+ * follows the bracket (newline, space, or inline text), because
+ * paragraph format varies between determinations.
+ *
+ * Excludes citation-year markers like [2026] via the 1–500 range.
+ */
+export function countEraParagraphs(text: string): number {
+  const regex = /\[(\d{1,3})\]/g;
+  const found = new Set<number>();
+  let match: RegExpExecArray | null;
+  while ((match = regex.exec(text)) !== null) {
+    const n = parseInt(match[1], 10);
+    if (n >= 1 && n <= 500) {
+      found.add(n);
+    }
+  }
+  return found.size;
+}
