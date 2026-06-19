@@ -1500,6 +1500,7 @@ export function getDashboardHtml(status: {
       btn.disabled = true;
       try {
         const resp = await fetch('/admin/seen-cases?limit=100', { credentials: 'same-origin' });
+        if (!resp.ok) throw new Error('HTTP ' + resp.status);
         const data = await resp.json();
         loadedCases = (data.cases || []).filter(c => !c.pdf_filename.startsWith('placeholder'));
         const tbody = document.getElementById('case-list-body');

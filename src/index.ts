@@ -1994,7 +1994,7 @@ Rules:
 
     // GET /admin/seen-cases
     if (request.method === 'GET' && url.pathname === '/admin/seen-cases') {
-      if (!isAuthenticated(request, env)) return new Response('Unauthorized', { status: 401 });
+      if (!isAuthenticated(request, env)) return jsonResponse({ error: 'Unauthorized' }, 401);
       const limit = parseInt(url.searchParams.get('limit') ?? '20', 10);
       const cases = await getRecentCases(env.DB, Math.min(limit, 100));
       return jsonResponse({ cases, count: cases.length });
