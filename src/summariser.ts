@@ -177,7 +177,7 @@ async function callCloudflareAI(
   env: Env
 ): Promise<string> {
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 45000); // 45-second timeout for ERA
+  const timeoutId = setTimeout(() => controller.abort(), 120000); // 120-second timeout for ERA (Cloudflare AI Gateway can be slow)
 
   try {
     const response = await (env.AI as any).run(MODEL, {
