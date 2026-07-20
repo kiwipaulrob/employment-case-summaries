@@ -67,10 +67,7 @@ export interface Env {
   DB: D1Database;
   EMAIL: SendEmail;
   PDF_PARSER: Fetcher;  // Service binding to pdf-parser-python worker
-
-  // OpenRouter
-  OPENROUTER_API_KEY: string;
-  OPENROUTER_MODEL: string;        // e.g. "anthropic/claude-3.5-sonnet"
+  AI: any;              // Cloudflare Unified Inference Layer
 
   // PDF strategy
   USE_PDF_URL_PASSTHROUGH: string; // "true" | "false"
@@ -98,40 +95,25 @@ export interface Env {
   CRON_SCHEDULE: string;           // e.g. "Daily at 8am NZT (dual cron for DST)"
 }
 
-// ─── OpenRouter API ───────────────────────────────────────────────────────────
+// ─── Cloudflare AI / Unified Inference ────────────────────────────────────────
 
-export interface OpenRouterMessage {
+export interface CloudflareAIMessage {
   role: 'system' | 'user' | 'assistant';
-  content: string | OpenRouterContentPart[];
+  content: string;
 }
 
-export interface OpenRouterContentPart {
-  type: 'text' | 'document';
-  text?: string;
-  source?: {
-    type: 'base64';
-    media_type: 'application/pdf';
-    data: string;
-  };
-}
-
-export interface OpenRouterRequest {
-  model: string;
-  messages: OpenRouterMessage[];
+export interface CloudflareAIRequest {
+  messages: CloudflareAIMessage[];
   max_tokens?: number;
 }
 
-export interface OpenRouterResponse {
-  choices: Array<{
-    message: {
-      content: string;
-    };
+export interface CloudflareAIResponse {
+  result?: {
+    content?: Array<{ text?: string }>;
     finish_reason?: string;
-  }>;
-  error?: {
-    message: string;
-    code?: number;
   };
+  content?: Array<{ text?: string }>;
+  error?: { message: string; code?: number };
 }
 
 // ─── Result types ─────────────────────────────────────────────────────────────
