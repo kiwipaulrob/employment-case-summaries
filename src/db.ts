@@ -31,13 +31,21 @@ export async function filterNewCases(
 
   if (pdfFilenames.length === 0) return cases; // No PDFs to check
 
-  const placeholders = pdfFilenames.map(() => '?').join(', ');
-  const result = await db
-    .prepare(`SELECT pdf_filename FROM seen_cases WHERE source = ? AND pdf_filename IN (${placeholders})`)
-    .bind(source, ...pdfFilenames)
-    .all<{ pdf_filename: string }>();
+  // Batch into chunks of 500 to avoid SQLite's 999-variable limit
+  const CHUNK_SIZE = 500;
+  const seenFilenames = new Set<string>();
 
-  const seenFilenames = new Set(result.results.map((r) => r.pdf_filename));
+  for (let i = 0; i < pdfFilenames.length; i += CHUNK_SIZE) {
+    const chunk = pdfFilenames.slice(i, i + CHUNK_SIZE);
+    const placeholders = chunk.map(() => '?').join(', ');
+    const result = await db
+      .prepare(`SELECT pdf_filename FROM seen_cases WHERE source = ? AND pdf_filename IN (${placeholders})`)
+      .bind(source, ...chunk)
+      .all<{ pdf_filename: string }>();
+    for (const row of result.results) {
+      seenFilenames.add(row.pdf_filename);
+    }
+  }
   return cases.filter((c) => {
     if (!c.pdfUrl) return true; // Include if no PDF (shouldn't happen)
     const filename = c.pdfUrl.split('/').pop() || '';
