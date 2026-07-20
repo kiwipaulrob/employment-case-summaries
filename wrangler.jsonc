@@ -47,11 +47,9 @@
 
   // ── AI binding (Cloudflare Unified Inference) ─────────────────────────────────
   // Uses anthropic/claude-sonnet-4.6 (hardcoded in summarisers).
-  "ai": [
-    {
-      "binding": "AI"
-    }
-  ],
+  "ai": {
+    "binding": "AI"
+  },
 
   // ── Service bindings ───────────────────────────────────────────────────────────
   // Allows zero-latency calls to other Workers (e.g. pdf-parser-python).
