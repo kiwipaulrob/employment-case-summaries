@@ -1250,9 +1250,9 @@ Rules:
                   { role: 'user', content: c.summary },
                 ],
                 max_tokens: 300,
-                signal: controller.signal,
               }, {
                 gateway: { id: 'default' },
+                signal: controller.signal,
               });
               clearTimeout(timeoutId);
               const extractionBody = extractionResponse?.result?.content?.[0]?.text ?? extractionResponse?.content?.[0]?.text;
@@ -2286,6 +2286,7 @@ Rules:
           max_tokens: 5,
         }, {
           gateway: { id: 'default' },
+          signal: new AbortController().signal,
         });
         const text = testResponse?.result?.content?.[0]?.text ?? testResponse?.content?.[0]?.text;
         const model = 'anthropic/claude-sonnet-4.6';
