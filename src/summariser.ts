@@ -1,21 +1,16 @@
 /**
- * summariser.ts — OpenRouter API client and prompt construction.
+ * summariser.ts — Cloudflare Unified Inference Layer client and prompt construction.
  *
- * All LLM calls are isolated here. To switch to a different provider or model:
- *   - Change OPENROUTER_MODEL env var (no code change required for any OpenRouter model)
- *   - To bypass OpenRouter entirely, update the baseUrl and auth header below
- *
- * Model capability detection:
- *   - Claude models (anthropic/*): support base64 PDF input natively
- *   - All other models: receive extracted plain text
+ * All LLM calls use Cloudflare's native AI binding (env.AI) — no external API keys needed.
+ * Model: anthropic/claude-sonnet-4.6 (hardcoded)
  */
 
-import type { CaseListing, OpenRouterRequest, OpenRouterResponse, SummaryResult } from './types';
+import type { CaseListing, SummaryResult, Env } from './types';
 import type { PdfContent } from './pdf';
 import { truncateToTokenBudget, countEraParagraphs } from './pdf';
 import { sleep, stripLlmArtifacts } from './utils';
 
-const OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1/chat/completions';
+const MODEL = 'anthropic/claude-sonnet-4.6';
 
 // ─── System prompt ────────────────────────────────────────────────────────────
 
@@ -120,16 +115,6 @@ Employee status: [employee if the determination considers and finds the person w
 Outcome: [applicant if the employee/applicant succeeded; respondent if the employer/respondent succeeded; mixed if partial; none if no determination on merits]
 AWARDS_DATA_END`;
 
-// ─── Model capability detection ───────────────────────────────────────────────
-
-/**
- * Returns true for models known to support native PDF (base64 document) input
- * via the Anthropic messages format (passed through by OpenRouter).
- */
-function modelSupportsPdfInput(model: string): boolean {
-  return model.startsWith('anthropic/');
-}
-
 // ─── Dynamic prompt resolution ────────────────────────────────────────────────
 
 /**
@@ -156,9 +141,8 @@ async function resolveEraPrompt(db?: D1Database): Promise<string> {
 function buildMessages(
   caseData: CaseListing,
   pdfContent: PdfContent,
-  model: string,
   systemPrompt: string
-): OpenRouterRequest['messages'] {
+): Array<{ role: 'system' | 'user'; content: string }> {
   const metaPreamble =
     `Case title: ${caseData.title}\n` +
     `Date: ${caseData.datePublished ?? 'Unknown'}\n` +
@@ -167,40 +151,16 @@ function buildMessages(
     `Case URL: ${caseData.caseUrl}\n\n` +
     `Please summarise this Employment Relations Authority determination using the specified structured format.\n\n`;
 
-  // Claude via OpenRouter: pass PDF as a base64 document in the content array
-  if (pdfContent.strategy === 'base64' && modelSupportsPdfInput(model)) {
-    return [
-      { role: 'system', content: systemPrompt },
-      {
-        role: 'user',
-        content: [
-          {
-            type: 'document',
-            source: {
-              type: 'base64',
-              media_type: pdfContent.mediaType,
-              data: pdfContent.data,
-            },
-          },
-          {
-            type: 'text',
-            text: metaPreamble,
-          },
-        ],
-      },
-    ];
-  }
-
-  // All other models: pass extracted text inline
+  // Cloudflare AI: pass extracted text inline (no base64 document parts for unified inference)
   const textContent =
     pdfContent.strategy === 'text'
       ? truncateToTokenBudget(pdfContent.text)
       : '[PDF content could not be extracted as text for this model. Summarise based on the metadata above if possible, otherwise respond with SUMMARY_UNAVAILABLE]';
 
   return [
-    { role: 'system', content: systemPrompt },
+    { role: 'system' as const, content: systemPrompt },
     {
-      role: 'user',
+      role: 'user' as const,
       content:
         metaPreamble +
         'Full determination text:\n\n' +
@@ -213,48 +173,36 @@ function buildMessages(
 
 // ─── API call ─────────────────────────────────────────────────────────────────
 
-async function callOpenRouter(
-  request: OpenRouterRequest,
-  apiKey: string
+async function callCloudflareAI(
+  messages: Array<{ role: 'system' | 'user'; content: string }>,
+  env: Env
 ): Promise<string> {
-  // Create an AbortController with a 120-second timeout (increased from 45s for larger batches)
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 120000);
+  const timeoutId = setTimeout(() => controller.abort(), 45000); // 45-second timeout for ERA
 
   try {
-    const response = await fetch(OPENROUTER_BASE_URL, {
-      method: 'POST',
+    const response = await (env.AI as any).run(MODEL, {
+      messages,
+      max_tokens: 8000,
       signal: controller.signal,
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${apiKey}`,
-        'HTTP-Referer': 'https://whenroutinebiteshard.com',
-        'X-Title': 'ERA Determinations Digest',
-      },
-      body: JSON.stringify(request),
     });
 
-    const json = (await response.json()) as OpenRouterResponse;
-
-    if (!response.ok || json.error) {
+    const text = response?.result?.content?.[0]?.text ?? response?.content?.[0]?.text;
+    if (!text) {
       throw new Error(
-        `OpenRouter API error ${response.status}: ${json.error?.message ?? JSON.stringify(json)}`
+        `Cloudflare AI error: ${response?.error?.message ?? JSON.stringify(response)}`
       );
     }
 
-    const message = json.choices?.[0];
-    const content = message?.message?.content;
-    if (!content) {
-      throw new Error('OpenRouter returned an empty response');
-    }
+    const content = text.trim();
 
     // Check if the response was truncated due to token limit
-    if (message?.finish_reason === 'length') {
+    if (response?.result?.finish_reason === 'length') {
       console.warn(`⚠️ ERA case summary truncated due to max_tokens limit`);
-      return content.trim() + '\n\n[WARNING: Summary was truncated due to length limits. Please read full PDF.]';
+      return content + '\n\n[WARNING: Summary was truncated due to length limits. Please read full PDF.]';
     }
 
-    return content.trim();
+    return content;
   } finally {
     // Always clear the timeout to prevent memory leaks
     clearTimeout(timeoutId);
@@ -267,25 +215,21 @@ async function callOpenRouter(
  * Generates a structured summary for one case.
  * Retries once on failure before returning a fallback message.
  *
- * @param db  Optional D1 database — if provided, the active prompt is read from the
- *            `prompt_era` config key so edits in the admin UI take effect without redeploying.
- *            Falls back to the hardcoded SYSTEM_PROMPT if D1 is unavailable or empty.
+ * @param env  Worker environment (provides Cloudflare AI binding)
+ * @param db   Optional D1 database — if provided, the active prompt is read from the
+ *             `prompt_era` config key so edits in the admin UI take effect without redeploying.
+ *             Falls back to the hardcoded SYSTEM_PROMPT if D1 is unavailable or empty.
  */
 export async function summariseCase(
   caseData: CaseListing,
   pdfContent: PdfContent,
-  apiKey: string,
-  model: string,
+  env: Env,
   db?: D1Database
 ): Promise<SummaryResult> {
   // Resolve the active prompt — D1 first, hardcoded constant as fallback
   const systemPrompt = await resolveEraPrompt(db);
 
-  const request: OpenRouterRequest = {
-    model,
-    messages: buildMessages(caseData, pdfContent, model, systemPrompt),
-    max_tokens: 8000, // 8000 tokens to capture very long/complex cases with many legal issues
-  };
+  const messages = buildMessages(caseData, pdfContent, systemPrompt);
 
   // Count paragraphs from extracted PDF text (before truncation)
   let paragraphCount: number | null = null;
@@ -296,7 +240,7 @@ export async function summariseCase(
 
   for (let attempt = 1; attempt <= 2; attempt++) {
     try {
-      let summary = await callOpenRouter(request, apiKey);
+      let summary = await callCloudflareAI(messages, env);
 
       if (summary.includes('SUMMARY_UNAVAILABLE')) {
         return {

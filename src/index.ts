@@ -610,8 +610,7 @@ export default {
         const summaryResult = await summariseEmploymentCourtCase(
           caseListing,
           pdfContentForSummariser,
-          env.OPENROUTER_API_KEY,
-          env.OPENROUTER_MODEL,
+          env,
           env.DB
         );
 
@@ -696,7 +695,7 @@ export default {
         };
         // Pass DB so D1 prompt is used if set
         const summaryResult = await summariseEmploymentCourtCase(
-          caseListing, pdfContent, env.OPENROUTER_API_KEY, env.OPENROUTER_MODEL, env.DB
+          caseListing, pdfContent, env, env.DB
         );
         if (!summaryResult.success) {
           return jsonResponse({ error: `LLM summarisation failed: ${summaryResult.error}` }, 500);
@@ -991,7 +990,7 @@ export default {
               category: c.category,
             };
             const summaryResult = await summariseCase(
-              caseListing, pdfContent, env.OPENROUTER_API_KEY, env.OPENROUTER_MODEL, env.DB
+              caseListing, pdfContent, env, env.DB
             );
             if (!summaryResult.success) {
               results.push({ pdfFilename: c.pdf_filename, success: false, error: summaryResult.error ?? 'Summarisation failed' });
@@ -1089,7 +1088,7 @@ export default {
             }
 
             const pdfContent = await getPdfContent(c.pdfUrl);
-            const summaryResult = await summariseCase(c, pdfContent, env.OPENROUTER_API_KEY, env.OPENROUTER_MODEL, env.DB);
+            const summaryResult = await summariseCase(c, pdfContent, env, env.DB);
             if (!summaryResult.success) {
               console.warn(`ERA Backfill: summarisation failed for ${c.caseId}`);
               failed++;
@@ -1231,33 +1230,23 @@ Rules:
             const pdfFilename = c.pdf_filename;
             if (!pdfFilename || !c.summary) { failed++; continue; }
 
-            // Call LLM for extraction
+            // Call Cloudflare AI for extraction
             const controller = new AbortController();
             const timeoutId = setTimeout(() => controller.abort(), 60000);
             let jsonText: string;
             try {
-              const resp = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-                method: 'POST',
+              const extractionResponse = await (env.AI as any).run('anthropic/claude-sonnet-4.6', {
+                messages: [
+                  { role: 'system', content: EXTRACTION_PROMPT },
+                  { role: 'user', content: c.summary },
+                ],
+                max_tokens: 300,
                 signal: controller.signal,
-                headers: {
-                  'Content-Type': 'application/json',
-                  'Authorization': `Bearer ${env.OPENROUTER_API_KEY}`,
-                  'HTTP-Referer': 'https://whenroutinebiteshard.com',
-                  'X-Title': 'ERA Digest Awards Extraction',
-                },
-                body: JSON.stringify({
-                  model: env.OPENROUTER_MODEL,
-                  messages: [
-                    { role: 'system', content: EXTRACTION_PROMPT },
-                    { role: 'user', content: c.summary },
-                  ],
-                  max_tokens: 300,
-                }),
               });
               clearTimeout(timeoutId);
-              const json = await resp.json() as { choices?: Array<{ message: { content: string } }>; error?: { message: string } };
-              if (!resp.ok || json.error) throw new Error(json.error?.message ?? `HTTP ${resp.status}`);
-              jsonText = json.choices?.[0]?.message?.content?.trim() ?? '';
+              const extractionBody = extractionResponse?.result?.content?.[0]?.text ?? extractionResponse?.content?.[0]?.text;
+              if (!extractionBody) throw new Error(extractionResponse?.error?.message ?? 'No response from Cloudflare AI');
+              jsonText = extractionBody.trim();
             } finally {
               clearTimeout(timeoutId);
             }
@@ -1375,7 +1364,7 @@ Rules:
           try {
             if (!c.pdfUrl) { failed++; continue; }
             const pdfContent = await getPdfContent(c.pdfUrl);
-            const summaryResult = await summariseCase(c, pdfContent, env.OPENROUTER_API_KEY, env.OPENROUTER_MODEL, env.DB);
+            const summaryResult = await summariseCase(c, pdfContent, env, env.DB);
             if (!summaryResult.success) { failed++; continue; }
             const { awardsData, strippedSummary } = parseAwardsBlock(summaryResult.summary);
             const betterTitle = extractTitleFromSummary(strippedSummary, c.category);
@@ -1466,7 +1455,7 @@ Rules:
           try {
             if (!c.pdfUrl) { failed++; continue; }
             const pdfContent = await getPdfContent(c.pdfUrl);
-            const summaryResult = await summariseCase(c, pdfContent, env.OPENROUTER_API_KEY, env.OPENROUTER_MODEL, env.DB);
+            const summaryResult = await summariseCase(c, pdfContent, env, env.DB);
             if (!summaryResult.success) { failed++; continue; }
             const { awardsData, strippedSummary } = parseAwardsBlock(summaryResult.summary);
             const betterTitle = extractTitleFromSummary(strippedSummary, c.category);
@@ -1562,7 +1551,7 @@ Rules:
               pdfUrl: null, member: null, datePublished: null, category,
             };
 
-            const summaryResult = await summariseCase(caseListing, pdfContent, env.OPENROUTER_API_KEY, env.OPENROUTER_MODEL, env.DB);
+            const summaryResult = await summariseCase(caseListing, pdfContent, env, env.DB);
             if (!summaryResult.success) {
               details.push({ filename: pdfFilename, success: false, error: String(summaryResult.error ?? 'Unknown error') });
               failed++;
@@ -1718,7 +1707,7 @@ Rules:
         
         // Summarise with ERA prompt (read from D1 at runtime)
         const summaryResult = await summariseCase(
-          caseListing, pdfContent, env.OPENROUTER_API_KEY, env.OPENROUTER_MODEL, env.DB
+          caseListing, pdfContent, env, env.DB
         );
 
         if (!summaryResult.success) {
@@ -1834,7 +1823,7 @@ Rules:
               datePublished: c.date_published, category: c.category,
             };
             const summaryResult = await summariseCase(
-              caseListing, pdfContent, env.OPENROUTER_API_KEY, env.OPENROUTER_MODEL, env.DB
+              caseListing, pdfContent, env, env.DB
             );
             if (!summaryResult.success) {
               console.error(`Refresh-summaries: failed for ${c.pdf_filename}: ${summaryResult.error}`);
@@ -2294,22 +2283,17 @@ Rules:
     // GET /admin/test-llm
     if (request.method === 'GET' && url.pathname === '/admin/test-llm') {
       try {
-        const resp = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${env.OPENROUTER_API_KEY}`,
-            'HTTP-Referer': env.SITE_URL,
-            'X-Title': 'ERA Determinations Digest',
-          },
-          body: JSON.stringify({
-            model: env.OPENROUTER_MODEL,
-            messages: [{ role: 'user', content: 'Reply with just the word: OK' }],
-            max_tokens: 5,
-          }),
+        const testResponse = await (env.AI as any).run('anthropic/claude-sonnet-4.6', {
+          messages: [{ role: 'user', content: 'Reply with just the word: OK' }],
+          max_tokens: 5,
         });
-        const json = await resp.json() as unknown;
-        return jsonResponse({ httpStatus: resp.status, body: json, model: env.OPENROUTER_MODEL });
+        const text = testResponse?.result?.content?.[0]?.text ?? testResponse?.content?.[0]?.text;
+        const model = 'anthropic/claude-sonnet-4.6';
+        if (text) {
+          return jsonResponse({ status: 'ok', response: text.trim(), model });
+        } else {
+          return jsonResponse({ status: 'error', error: testResponse?.error?.message ?? 'No response text', model }, 500);
+        }
       } catch (err) {
         return jsonResponse({ error: String(err) }, 500);
       }
@@ -2444,7 +2428,7 @@ async function runDigest(env: Env, force = false, limit = 3): Promise<RunResult>
       } else {
         try {
           const pdfContent = await getPdfContent(c.pdfUrl);
-          const summaryResult = await summariseCase(c, pdfContent, env.OPENROUTER_API_KEY, env.OPENROUTER_MODEL, env.DB);
+          const summaryResult = await summariseCase(c, pdfContent, env, env.DB);
           summary = summaryResult.summary;
           success = summaryResult.success;
           paragraphCount = summaryResult.paragraphCount ?? null;

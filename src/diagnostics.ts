@@ -2,7 +2,7 @@
  * diagnostics.ts — Isolated diagnostic tests for the ERA Digest Worker.
  *
  * Each test exercises a single layer of the summarisation pipeline so you
- * can pinpoint where failures occur: Cloudflare runtime, OpenRouter API,
+ * can pinpoint where failures occur: Cloudflare runtime, AI binding,
  * PDF extraction, or application logic.
  *
  * Results are grouped and returned as a flat object — no side effects.
@@ -70,10 +70,9 @@ export async function testPing(env: Env, _request: Request): Promise<Diagnostics
   // 1c — Env vars present
   const envStart = performance.now();
   const checks: Array<{ key: string; value: string | undefined }> = [
-    { key: 'OPENROUTER_API_KEY', value: env.OPENROUTER_API_KEY },
-    { key: 'OPENROUTER_MODEL', value: env.OPENROUTER_MODEL },
     { key: 'ADMIN_SECRET', value: env.ADMIN_SECRET },
     { key: 'SITE_URL', value: env.SITE_URL },
+    { key: 'AI', value: env.AI ? 'present' : undefined },
   ];
   const missing = checks.filter(c => !c.value);
   if (missing.length === 0) {
@@ -86,86 +85,34 @@ export async function testPing(env: Env, _request: Request): Promise<Diagnostics
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// Test 2  —  OpenRouter Connectivity
+// Test 2  —  Cloudflare AI Connectivity
 // ═══════════════════════════════════════════════════════════════════════════════
 
-export async function testOpenRouterConnectivity(env: Env): Promise<DiagnosticsReport> {
+export async function testCloudflareAIConnectivity(env: Env): Promise<DiagnosticsReport> {
   const results: TestResult[] = [];
 
-  // 2a — Network reach (can we resolve + connect to openrouter.ai?)
-  const reachStart = performance.now();
+  // 2a — Ping the AI binding with a minimal prompt
+  const aiStart = performance.now();
   try {
-    const reachResp = await fetch('https://openrouter.ai/api/v1/models', {
-      method: 'GET',
-      headers: { 'Authorization': `Bearer ${env.OPENROUTER_API_KEY}` },
+    const response = await (env.AI as any).run('anthropic/claude-sonnet-4.6', {
+      messages: [{ role: 'user', content: 'Reply with just the word: OK' }],
+      max_tokens: 5,
     });
-    if (reachResp.ok) {
-      results.push(ok('network_reach', `HTTP ${reachResp.status} — OpenRouter reachable`, performance.now() - reachStart));
+    const text = response?.result?.content?.[0]?.text ?? response?.content?.[0]?.text;
+    const ms = performance.now() - aiStart;
+
+    if (text) {
+      results.push(ok('ai_completion', `Response: "${text.trim()}" in ${Math.round(ms)}ms`, ms));
+    } else if (response?.error) {
+      results.push(fail('ai_completion', `AI error: ${response.error.message}`, ms));
     } else {
-      results.push(fail('network_reach', `HTTP ${reachResp.status} ${reachResp.statusText}`, performance.now() - reachStart));
-      // Short-circuit — if we can't reach OR at all, further sub-tests will also fail
-      return finalise('openrouter-connectivity', 'OpenRouter Connectivity', results);
+      results.push(fail('ai_completion', `Unexpected response: ${JSON.stringify(response).slice(0, 300)}`, ms));
     }
   } catch (err) {
-    results.push(fail('network_reach', `Connection error: ${String(err)}`, performance.now() - reachStart));
-    return finalise('openrouter-connectivity', 'OpenRouter Connectivity', results);
+    results.push(fail('ai_completion', `Request failed: ${String(err)}`, performance.now() - aiStart));
   }
 
-  // 2b — Model availability (is our specific model listed as active?)
-  const modelStart = performance.now();
-  try {
-    const modelsResp = await fetch('https://openrouter.ai/api/v1/models', {
-      headers: { 'Authorization': `Bearer ${env.OPENROUTER_MODEL}` },
-    });
-    if (modelsResp.ok) {
-      const modelsJson = await modelsResp.json() as { data?: Array<{ id: string }> };
-      const modelList = modelsJson?.data ?? [];
-      const ourModel = env.OPENROUTER_MODEL;
-      const found = modelList.some((m: { id: string }) => m.id === ourModel);
-      if (found) {
-        results.push(ok('model_available', `Model "${ourModel}" found in OpenRouter catalog`, performance.now() - modelStart));
-      } else {
-        results.push(warn('model_available', `Model "${ourModel}" NOT found in catalog (may still work via alias)`, performance.now() - modelStart));
-      }
-    } else {
-      results.push(fail('model_available', `HTTP ${modelsResp.status} listing models`, performance.now() - modelStart));
-    }
-  } catch (err) {
-    results.push(warn('model_available', `Could not list models: ${String(err)}`, performance.now() - modelStart));
-  }
-
-  // 2c — Auth validity (send a minimal chat completion)
-  const authStart = performance.now();
-  try {
-    const chatResp = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${env.OPENROUTER_API_KEY}`,
-        'HTTP-Referer': env.SITE_URL,
-        'X-Title': 'ERA Determinations Digest (Diagnostics)',
-      },
-      body: JSON.stringify({
-        model: env.OPENROUTER_MODEL,
-        messages: [{ role: 'user', content: 'Reply with just the word: OK' }],
-        max_tokens: 5,
-      }),
-    });
-    const body = await chatResp.json() as { choices?: Array<{ message: { content: string } }>; error?: { message: string } };
-    const ms = performance.now() - authStart;
-
-    if (chatResp.ok && body.choices?.[0]?.message?.content) {
-      results.push(ok('auth_and_completion', `Response: "${body.choices[0].message.content.trim()}" in ${Math.round(ms)}ms`, ms));
-    } else if (body.error) {
-      results.push(fail('auth_and_completion', `API error ${chatResp.status}: ${body.error.message}`, ms));
-    } else {
-      results.push(fail('auth_and_completion', `Unexpected response: ${JSON.stringify(body).slice(0, 300)}`, ms));
-    }
-  } catch (err) {
-    results.push(fail('auth_and_completion', `Request failed: ${String(err)}`, performance.now() - authStart));
-  }
-
-  return finalise('openrouter-connectivity', 'OpenRouter Connectivity', results);
+  return finalise('cloudflare-ai-connectivity', 'Cloudflare AI Connectivity', results);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -197,13 +144,13 @@ export async function testFullSummary(env: Env): Promise<DiagnosticsReport> {
     results.push(ok('pdf_extraction', `Strategy: ${pdfContent.strategy}, text length: ${textLen}`, performance.now() - pdfStart));
   } catch (err) {
     results.push(fail('pdf_extraction', `Failed: ${String(err)}`, performance.now() - pdfStart));
-    return finalise('openrouter-summary', 'Full Summary (Known PDF)', results);
+    return finalise('cloudflare-ai-summary', 'Full Summary (Known PDF)', results);
   }
 
-  // 3b — LLM summarisation
+  // 3b — LLM summarisation via Cloudflare AI
   const llmStart = performance.now();
   try {
-    const summaryResult = await summariseCase(testCase, pdfContent, env.OPENROUTER_API_KEY, env.OPENROUTER_MODEL);
+    const summaryResult = await summariseCase(testCase, pdfContent, env);
     const ms = performance.now() - llmStart;
 
     if (summaryResult.success) {
@@ -218,7 +165,7 @@ export async function testFullSummary(env: Env): Promise<DiagnosticsReport> {
     results.push(fail('llm_summary', `Exception: ${String(err)}`, performance.now() - llmStart));
   }
 
-  return finalise('openrouter-summary', 'Full Summary Test', results);
+  return finalise('cloudflare-ai-summary', 'Full Summary Test', results);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -267,19 +214,7 @@ export async function testTimeBudget(env: Env): Promise<DiagnosticsReport> {
   const results: TestResult[] = [];
   const overallStart = performance.now();
 
-  // 5a — Network latency to OpenRouter
-  const netStart = performance.now();
-  try {
-    const resp = await fetch('https://openrouter.ai/api/v1/models', {
-      method: 'GET',
-      headers: { 'Authorization': `Bearer ${env.OPENROUTER_API_KEY}` },
-    });
-    results.push(ok('or_network', `HTTP ${resp.status}`, performance.now() - netStart));
-  } catch (err) {
-    results.push(fail('or_network', String(err), performance.now() - netStart));
-  }
-
-  // 5b — ERA listing page fetch
+  // 5a — ERA listing page fetch
   const scrapeStart = performance.now();
   try {
     const cases = await scrapeRecentPage(env.SOURCE_URL);
@@ -288,7 +223,7 @@ export async function testTimeBudget(env: Env): Promise<DiagnosticsReport> {
     results.push(fail('scrape_listing', String(err), performance.now() - scrapeStart));
   }
 
-  // 5c — D1 read latency
+  // 5b — D1 read latency
   const dbStart = performance.now();
   try {
     const count = await env.DB.prepare('SELECT COUNT(*) AS cnt FROM seen_cases').first<{ cnt: number }>();
@@ -297,10 +232,9 @@ export async function testTimeBudget(env: Env): Promise<DiagnosticsReport> {
     results.push(fail('d1_read', String(err), performance.now() - dbStart));
   }
 
-  // 5d — D1 write (small insert)
+  // 5c — D1 write (small insert)
   const dbWriteStart = performance.now();
   try {
-    // Write a diagnostic marker (use config table)
     await env.DB.prepare(
       "INSERT OR REPLACE INTO config (key, value, updated_at) VALUES ('diag_last_test', ?, datetime('now'))"
     ).bind(new Date().toISOString()).run();
@@ -367,10 +301,10 @@ export async function testEndToEnd(env: Env): Promise<DiagnosticsReport> {
     return finalise('end-to-end', 'End-to-End Single Case', results);
   }
 
-  // 6d — Summarisation via LLM
+  // 6d — Summarisation via Cloudflare AI
   const llmStart = performance.now();
   try {
-    const summaryResult = await summariseCase(candidate, pdfContent, env.OPENROUTER_API_KEY, env.OPENROUTER_MODEL);
+    const summaryResult = await summariseCase(candidate, pdfContent, env);
     const ms = performance.now() - llmStart;
 
     if (summaryResult.success) {
@@ -416,8 +350,8 @@ export const DIAGNOSTICS_TESTS: Record<string, {
   run: (env: Env, request: Request) => Promise<DiagnosticsReport>;
 }> = {
   'ping': { label: 'Cloudflare Environment', run: testPing },
-  'openrouter-connectivity': { label: 'OpenRouter Connectivity', run: testOpenRouterConnectivity },
-  'openrouter-summary': { label: 'Full Summary (Known PDF)', run: testFullSummary },
+  'cloudflare-ai-connectivity': { label: 'Cloudflare AI Connectivity', run: testCloudflareAIConnectivity },
+  'cloudflare-ai-summary': { label: 'Full Summary (Known PDF)', run: testFullSummary },
   'pdf-extraction': { label: 'PDF Extraction Quality', run: testPdfExtraction },
   'time-budget': { label: 'Time Budget Breakdown', run: testTimeBudget },
   'end-to-end': { label: 'End-to-End Single Case', run: testEndToEnd },

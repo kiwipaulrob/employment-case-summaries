@@ -1,5 +1,8 @@
 /**
- * summariserEmploymentCourt.ts — OpenRouter API client for Employment Court judgments.
+ * summariserEmploymentCourt.ts — Cloudflare Unified Inference Layer client for Employment Court judgments.
+ *
+ * Uses Cloudflare's native AI binding (env.AI) for EC case summarisation.
+ * Model: anthropic/claude-sonnet-4.6 (hardcoded)
  *
  * Extends the summariser with a 7-section format specific to appellate court decisions:
  *   1. Parties
@@ -11,12 +14,12 @@
  *   7. Outcome & Remedy (the Court's final order)
  */
 
-import type { CaseListing, OpenRouterRequest, OpenRouterResponse, SummaryResult } from './types';
+import type { CaseListing, SummaryResult, Env } from './types';
 import type { PdfContent } from './pdf';
 import { truncateToTokenBudget } from './pdf';
 import { sleep, stripLlmArtifacts } from './utils';
 
-const OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1/chat/completions';
+const MODEL = 'anthropic/claude-sonnet-4.6';
 
 // ─── System prompt for Employment Court ────────────────────────────────────
 
@@ -104,12 +107,6 @@ Additional instructions:
 - Prioritise completeness over brevity. Include all material issues and resolutions.
 - If you cannot access or read the document, respond only with: SUMMARY_UNAVAILABLE`;
 
-// ─── Model capability detection ───────────────────────────────────────────────
-
-function modelSupportsPdfInput(model: string): boolean {
-  return model.startsWith('anthropic/');
-}
-
 // ─── Dynamic prompt resolution ────────────────────────────────────────────────
 
 /**
@@ -136,9 +133,8 @@ async function resolveEcPrompt(db?: D1Database): Promise<string> {
 function buildMessages(
   caseData: CaseListing,
   pdfContent: PdfContent,
-  model: string,
   systemPrompt: string
-): OpenRouterRequest['messages'] {
+): Array<{ role: 'system' | 'user'; content: string }> {
   const metaPreamble =
     `Case title: ${caseData.title}\n` +
     `Date: ${caseData.datePublished ?? 'Unknown'}\n` +
@@ -147,40 +143,16 @@ function buildMessages(
     `Case URL: ${caseData.caseUrl}\n\n` +
     `Please summarise this Employment Court judgment using the specified structured format.\n\n`;
 
-  // Claude via OpenRouter: pass PDF as a base64 document in the content array
-  if (pdfContent.strategy === 'base64' && modelSupportsPdfInput(model)) {
-    return [
-      { role: 'system', content: systemPrompt },
-      {
-        role: 'user',
-        content: [
-          {
-            type: 'document',
-            source: {
-              type: 'base64',
-              media_type: pdfContent.mediaType,
-              data: pdfContent.data,
-            },
-          },
-          {
-            type: 'text',
-            text: metaPreamble,
-          },
-        ],
-      },
-    ];
-  }
-
-  // All other models: pass extracted text inline
+  // Cloudflare AI: pass extracted text inline
   const textContent =
     pdfContent.strategy === 'text'
       ? truncateToTokenBudget(pdfContent.text)
       : '[PDF content could not be extracted as text for this model. Summarise based on the metadata above if possible, otherwise respond with SUMMARY_UNAVAILABLE]';
 
   return [
-    { role: 'system', content: systemPrompt },
+    { role: 'system' as const, content: systemPrompt },
     {
-      role: 'user',
+      role: 'user' as const,
       content:
         metaPreamble +
         'Full judgment text:\n\n' +
@@ -193,48 +165,36 @@ function buildMessages(
 
 // ─── API call ─────────────────────────────────────────────────────────────
 
-async function callOpenRouter(
-  request: OpenRouterRequest,
-  apiKey: string
+async function callCloudflareAI(
+  messages: Array<{ role: 'system' | 'user'; content: string }>,
+  env: Env
 ): Promise<string> {
-  // Create an AbortController with a 120-second timeout (EC judgments are long)
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 120000);
+  const timeoutId = setTimeout(() => controller.abort(), 120000); // 120-second timeout for EC
 
   try {
-    const response = await fetch(OPENROUTER_BASE_URL, {
-      method: 'POST',
+    const response = await (env.AI as any).run(MODEL, {
+      messages,
+      max_tokens: 4000,
       signal: controller.signal,
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${apiKey}`,
-        'HTTP-Referer': 'https://whenroutinebiteshard.com',
-        'X-Title': 'ERA Determinations Digest (Employment Court)',
-      },
-      body: JSON.stringify(request),
     });
 
-    const json = (await response.json()) as OpenRouterResponse;
-
-    if (!response.ok || json.error) {
+    const text = response?.result?.content?.[0]?.text ?? response?.content?.[0]?.text;
+    if (!text) {
       throw new Error(
-        `OpenRouter API error ${response.status}: ${json.error?.message ?? JSON.stringify(json)}`
+        `Cloudflare AI error: ${response?.error?.message ?? JSON.stringify(response)}`
       );
     }
 
-    const message = json.choices?.[0];
-    const content = message?.message?.content;
-    if (!content) {
-      throw new Error('OpenRouter returned an empty response');
-    }
+    const content = text.trim();
 
     // Check if the response was truncated due to token limit
-    if (message?.finish_reason === 'length') {
+    if (response?.result?.finish_reason === 'length') {
       console.warn(`⚠️ Employment Court case summary truncated due to max_tokens limit`);
-      return content.trim() + '\n\n[WARNING: Summary was truncated due to length limits. Please read full judgment.]';
+      return content + '\n\n[WARNING: Summary was truncated due to length limits. Please read full judgment.]';
     }
 
-    return content.trim();
+    return content;
   } finally {
     // Always clear the timeout to prevent memory leaks
     clearTimeout(timeoutId);
@@ -258,29 +218,25 @@ export function extractJudgeName(summary: string): string | null {
  * Generates a 7-section structured summary for an Employment Court judgment.
  * Retries once on failure before returning a fallback message.
  *
- * @param db  Optional D1 database — if provided, the active prompt is read from the
- *            `prompt_ec` config key so edits in the admin UI take effect without redeploying.
- *            Falls back to the hardcoded SYSTEM_PROMPT_EC if D1 is unavailable or empty.
+ * @param env  Worker environment (provides Cloudflare AI binding)
+ * @param db   Optional D1 database — if provided, the active prompt is read from the
+ *             `prompt_ec` config key so edits in the admin UI take effect without redeploying.
+ *             Falls back to the hardcoded SYSTEM_PROMPT_EC if D1 is unavailable or empty.
  */
 export async function summariseEmploymentCourtCase(
   caseData: CaseListing,
   pdfContent: PdfContent,
-  apiKey: string,
-  model: string,
+  env: Env,
   db?: D1Database
 ): Promise<SummaryResult> {
   // Resolve the active prompt — D1 first, hardcoded constant as fallback
   const systemPrompt = await resolveEcPrompt(db);
 
-  const request: OpenRouterRequest = {
-    model,
-    messages: buildMessages(caseData, pdfContent, model, systemPrompt),
-    max_tokens: 4000, // 4000 tokens to capture longer/complex appellate judgments (~3000–3200 words)
-  };
+  const messages = buildMessages(caseData, pdfContent, systemPrompt);
 
   for (let attempt = 1; attempt <= 2; attempt++) {
     try {
-      let summary = await callOpenRouter(request, apiKey);
+      let summary = await callCloudflareAI(messages, env);
 
       if (summary.includes('SUMMARY_UNAVAILABLE')) {
         return {
