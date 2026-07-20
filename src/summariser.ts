@@ -185,6 +185,8 @@ async function callCloudflareAI(
       messages,
       max_tokens: 8000,
       signal: controller.signal,
+    }, {
+      gateway: { id: 'default' },
     });
 
     const text = response?.result?.content?.[0]?.text ?? response?.content?.[0]?.text;

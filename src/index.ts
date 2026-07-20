@@ -1242,6 +1242,8 @@ Rules:
                 ],
                 max_tokens: 300,
                 signal: controller.signal,
+              }, {
+                gateway: { id: 'default' },
               });
               clearTimeout(timeoutId);
               const extractionBody = extractionResponse?.result?.content?.[0]?.text ?? extractionResponse?.content?.[0]?.text;
@@ -2286,6 +2288,8 @@ Rules:
         const testResponse = await (env.AI as any).run('anthropic/claude-sonnet-4.6', {
           messages: [{ role: 'user', content: 'Reply with just the word: OK' }],
           max_tokens: 5,
+        }, {
+          gateway: { id: 'default' },
         });
         const text = testResponse?.result?.content?.[0]?.text ?? testResponse?.content?.[0]?.text;
         const model = 'anthropic/claude-sonnet-4.6';
