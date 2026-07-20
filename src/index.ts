@@ -474,24 +474,33 @@ export default {
       }
     }
 
-// POST /admin/set-pause — Pause/resume via form submission
+// POST /admin/set-pause — Pause/resume (accepts form data or JSON)
     if (request.method === 'POST' && url.pathname === '/admin/set-pause') {
-      const session = getAdminCookie(request);
-      if (session !== env.ADMIN_SECRET) {
+      if (!isAuthenticated(request, env)) {
         return new Response('Unauthorized', { status: 401 });
       }
       try {
-        const formData = await request.formData();
-        const paused = (formData.get('paused') ?? '0') === '1' ? '1' : '0';
+        const ct = request.headers.get('content-type') ?? '';
+        let paused = '0';
+        if (ct.includes('application/json')) {
+          const body = await request.json() as { paused?: boolean };
+          paused = body.paused === true ? '1' : '0';
+        } else {
+          const formData = await request.formData();
+          paused = (formData.get('paused') ?? '0') === '1' ? '1' : '0';
+        }
         await env.DB.prepare('INSERT OR REPLACE INTO config (key, value, updated_at) VALUES (?, ?, datetime(\'now\'))')
           .bind('system_paused', paused)
           .run();
+        if (ct.includes('application/json')) {
+          return jsonResponse({ success: true, is_paused: paused === '1' });
+        }
         return new Response('', {
           status: 302,
           headers: { Location: '/admin' },
         });
       } catch (err) {
-        return new Response(JSON.stringify({ error: String(err) }), { status: 500 });
+        return jsonResponse({ error: String(err) }, 500);
       }
     }
     // POST /admin/upload-ec-case — Upload EC PDF
@@ -2156,19 +2165,6 @@ Rules:
       }
     }
 
-    // POST /admin/set-pause — Pause/resume the cron digest
-    if (request.method === 'POST' && url.pathname === '/admin/set-pause') {
-      try {
-        const body = await request.json() as { paused?: boolean };
-        const paused = body.paused === true ? '1' : '0';
-        await env.DB.prepare('INSERT OR REPLACE INTO config (key, value, updated_at) VALUES (?, ?, datetime(\'now\'))')
-          .bind('system_paused', paused)
-          .run();
-        return jsonResponse({ success: true, is_paused: paused === '1' });
-      } catch (err) {
-        return jsonResponse({ error: String(err) }, 500);
-      }
-    }
 
     // GET /admin/errors — Get recent errors (queries error_log table)
     if (request.method === 'GET' && url.pathname === '/admin/errors') {
