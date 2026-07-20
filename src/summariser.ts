@@ -140,9 +140,8 @@ async function resolveEraPrompt(db?: D1Database): Promise<string> {
 
 function buildMessages(
   caseData: CaseListing,
-  pdfContent: PdfContent,
-  systemPrompt: string
-): Array<{ role: 'system' | 'user'; content: string }> {
+  pdfContent: PdfContent
+): Array<{ role: 'user'; content: string }> {
   const metaPreamble =
     `Case title: ${caseData.title}\n` +
     `Date: ${caseData.datePublished ?? 'Unknown'}\n` +
@@ -158,7 +157,6 @@ function buildMessages(
       : '[PDF content could not be extracted as text for this model. Summarise based on the metadata above if possible, otherwise respond with SUMMARY_UNAVAILABLE]';
 
   return [
-    { role: 'system' as const, content: systemPrompt },
     {
       role: 'user' as const,
       content:
@@ -174,7 +172,8 @@ function buildMessages(
 // ─── API call ─────────────────────────────────────────────────────────────────
 
 async function callCloudflareAI(
-  messages: Array<{ role: 'system' | 'user'; content: string }>,
+  messages: Array<{ role: 'user'; content: string }>,
+  systemPrompt: string,
   env: Env
 ): Promise<string> {
   const controller = new AbortController();
@@ -183,6 +182,7 @@ async function callCloudflareAI(
   try {
     const response = await (env.AI as any).run(MODEL, {
       messages,
+      system: systemPrompt,
       max_tokens: 8000,
     }, {
       gateway: { id: 'default' },
@@ -230,8 +230,7 @@ export async function summariseCase(
 ): Promise<SummaryResult> {
   // Resolve the active prompt — D1 first, hardcoded constant as fallback
   const systemPrompt = await resolveEraPrompt(db);
-
-  const messages = buildMessages(caseData, pdfContent, systemPrompt);
+  const messages = buildMessages(caseData, pdfContent);
 
   // Count paragraphs from extracted PDF text (before truncation)
   let paragraphCount: number | null = null;
@@ -242,7 +241,7 @@ export async function summariseCase(
 
   for (let attempt = 1; attempt <= 2; attempt++) {
     try {
-      let summary = await callCloudflareAI(messages, env);
+      let summary = await callCloudflareAI(messages, systemPrompt, env);
 
       if (summary.includes('SUMMARY_UNAVAILABLE')) {
         return {
