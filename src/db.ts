@@ -543,7 +543,7 @@ export async function pruneErrorLog(db: D1Database, daysOld = 30): Promise<numbe
   return result.meta.changes || 0;
 }
 
-/** Search seen_cases by query against title, member, category, pdf_filename */
+/** Search seen_cases by query against title, member, category, pdf_filename, summary */
 export async function searchCases(
   db: D1Database,
   query: string,
@@ -556,9 +556,13 @@ export async function searchCases(
   if (field && ['title', 'member', 'category', 'pdf_filename'].includes(field)) {
     sql = `SELECT * FROM seen_cases WHERE ${field} LIKE ? ORDER BY processed_at DESC LIMIT ?`;
     params = [term, limit];
+  } else if (field === 'summary') {
+    sql = `SELECT * FROM seen_cases WHERE summary LIKE ? ORDER BY processed_at DESC LIMIT ?`;
+    params = [term, limit];
   } else {
-    sql = `SELECT * FROM seen_cases WHERE title LIKE ? OR member LIKE ? OR category LIKE ? OR pdf_filename LIKE ? ORDER BY processed_at DESC LIMIT ?`;
-    params = [term, term, term, term, limit];
+    // All fields: search title, member, category, pdf_filename, and summary
+    sql = `SELECT * FROM seen_cases WHERE title LIKE ? OR member LIKE ? OR category LIKE ? OR pdf_filename LIKE ? OR summary LIKE ? ORDER BY processed_at DESC LIMIT ?`;
+    params = [term, term, term, term, term, limit];
   }
   const result = await db.prepare(sql).bind(...params).all<DbSeenCase>();
   return result.results;
