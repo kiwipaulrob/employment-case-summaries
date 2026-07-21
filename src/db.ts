@@ -81,7 +81,7 @@ export async function markCaseSeen(
   await db
     .prepare(
       `INSERT OR IGNORE INTO seen_cases
-         (source, pdf_filename, case_id, title, case_url, pdf_url, date_published, member, category, summary, processed_at, summary_version, paragraph_count)
+       (source, pdf_filename, case_id, title, case_url, pdf_url, date_published, member, category, summary, processed_at, summary_version, paragraph_count)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
     .bind(
@@ -90,605 +90,302 @@ export async function markCaseSeen(
       processedCase.caseId,
       processedCase.title,
       processedCase.caseUrl,
-      processedCase.pdfUrl ?? null,
+      processedCase.pdfUrl,
       processedCase.datePublished ?? '',
       processedCase.member ?? null,
       processedCase.category ?? null,
       processedCase.summary,
       processedCase.processedAt,
       processedCase.summaryVersion ?? null,
-      processedCase.paragraphCount ?? null
+      processedCase.paragraphCount ?? null,
     )
     .run();
 }
 
 /**
- * Returns the N most recently processed cases (used by the /admin HTTP handler).
+ * Updates a single case's summary in the seen_cases table.
+ * Used for manual editing of summaries (no LLM re-run needed).
+ */
+export async function updateCaseSummary(
+  db: D1Database,
+  pdfFilename: string,
+  summary: string,
+  source: string = 'ERA'
+): Promise<void> {
+  await db
+    .prepare(`UPDATE seen_cases SET summary = ?, processed_at = datetime('now') WHERE source = ? AND pdf_filename = ?`)
+    .bind(summary, source, pdfFilename)
+    .run();
+}
+
+/**
+ * Returns the most recent processed cases, newest first.
  */
 export async function getRecentCases(
   db: D1Database,
   limit = 20
 ): Promise<DbSeenCase[]> {
   const result = await db
-    .prepare(
-      'SELECT * FROM seen_cases ORDER BY processed_at DESC LIMIT ?'
-    )
+    .prepare('SELECT * FROM seen_cases ORDER BY processed_at DESC LIMIT ?')
     .bind(limit)
     .all<DbSeenCase>();
   return result.results;
 }
 
 /**
- * Returns a paginated slice of cases for the public landing page.
- * Filters out placeholder summaries and (optionally) tagged cases server-side.
+ * Returns paginated cases excluding costs-only and consent tagged cases.
+ * Used for the public landing page.
  */
 export async function getRecentCasesPaged(
   db: D1Database,
-  limit: number,
-  offset: number,
-  showCosts: boolean,
-  showConsent: boolean
+  perPage = 20,
+  offset = 0,
+  excludeCosts = true,
+  excludeConsent = true
 ): Promise<DbSeenCase[]> {
-  let where = "WHERE summary IS NOT NULL AND summary NOT LIKE '(seeded%'";
-  if (!showCosts) where += " AND summary NOT LIKE '[COSTS ONLY]%'";
-  if (!showConsent) where += " AND summary NOT LIKE '[CONSENT]%'";
-  where += " AND summary NOT LIKE '[ENFORCEMENT]%'";
-  const result = await db
-    .prepare(`SELECT * FROM seen_cases ${where} ORDER BY processed_at DESC LIMIT ? OFFSET ?`)
-    .bind(limit, offset)
-    .all<DbSeenCase>();
+  let sql = 'SELECT * FROM seen_cases WHERE source = ?';
+  const params: any[] = ['ERA'];
+  if (excludeCosts) {
+    sql += " AND (summary IS NULL OR summary NOT LIKE '[COSTS ONLY]%')";
+  }
+  if (excludeConsent) {
+    sql += " AND (summary IS NULL OR summary NOT LIKE '[CONSENT]%')";
+  }
+  sql += ' ORDER BY processed_at DESC LIMIT ? OFFSET ?';
+  params.push(perPage, offset);
+  const result = await db.prepare(sql).bind(...params).all<DbSeenCase>();
   return result.results;
 }
 
-/**
- * Returns total count of cases visible on the landing page (respecting tag filters).
- * Used for pagination.
- */
 export async function getCaseCountPaged(
   db: D1Database,
-  showCosts: boolean,
-  showConsent: boolean
+  excludeCosts = true,
+  excludeConsent = true
 ): Promise<number> {
-  let where = "WHERE summary IS NOT NULL AND summary NOT LIKE '(seeded%'";
-  if (!showCosts) where += " AND summary NOT LIKE '[COSTS ONLY]%'";
-  if (!showConsent) where += " AND summary NOT LIKE '[CONSENT]%'";
-  where += " AND summary NOT LIKE '[ENFORCEMENT]%'";
-  const result = await db
-    .prepare(`SELECT COUNT(*) as count FROM seen_cases ${where}`)
-    .first<{ count: number }>();
-  return result?.count ?? 0;
+  let sql = 'SELECT COUNT(*) AS cnt FROM seen_cases WHERE source = ?';
+  const params: any[] = ['ERA'];
+  if (excludeCosts) {
+    sql += " AND (summary IS NULL OR summary NOT LIKE '[COSTS ONLY]%')";
+  }
+  if (excludeConsent) {
+    sql += " AND (summary IS NULL OR summary NOT LIKE '[CONSENT]%')";
+  }
+  const result = await db.prepare(sql).bind(...params).first<{ cnt: number }>();
+  return result?.cnt ?? 0;
 }
 
-/**
- * Returns all visible (non-costs, non-consent) case pdf_filenames ordered by processed_at DESC.
- * Used by the awards page to compute which home-page page each award row falls on.
- */
-export async function getVisibleCaseOrder(
+export async function getCaseStatistics(
   db: D1Database
-): Promise<Array<{ pdf_filename: string; processed_at: string }>> {
-  const result = await db
-    .prepare(
-      `SELECT pdf_filename, processed_at FROM seen_cases
-       WHERE summary IS NOT NULL
-         AND summary NOT LIKE '(seeded%'
-         AND summary NOT LIKE '[COSTS ONLY]%'
-         AND summary NOT LIKE '[CONSENT]%'
-         AND summary NOT LIKE '[ENFORCEMENT]%'
-       ORDER BY processed_at DESC`
-    )
-    .all<{ pdf_filename: string; processed_at: string }>();
-  return result.results;
-}
-
-/**
- * Returns case statistics (counts by source).
- * Used by dashboard to avoid loading full result sets.
- */
-export async function getCaseStatistics(db: D1Database): Promise<{ total: number; era: number; ec: number }> {
-  const result = await db
-    .prepare('SELECT source, COUNT(*) as count FROM seen_cases GROUP BY source')
-    .all<{ source: string; count: number }>();
-  
-  let era = 0;
-  let ec = 0;
-  result.results.forEach((r) => {
-    if (r.source === 'ERA') era = r.count;
-    if (r.source === 'EMPLOYMENT_COURT') ec = r.count;
-  });
-  
-  return { total: era + ec, era, ec };
+): Promise<{ total: number; era: number; ec: number }> {
+  const total = await db.prepare('SELECT COUNT(*) AS cnt FROM seen_cases').first<{ cnt: number }>();
+  const era = await db.prepare("SELECT COUNT(*) AS cnt FROM seen_cases WHERE source = 'ERA'").first<{ cnt: number }>();
+  const ec = await db.prepare("SELECT COUNT(*) AS cnt FROM seen_cases WHERE source = 'EMPLOYMENT_COURT'").first<{ cnt: number }>();
+  return { total: total?.cnt ?? 0, era: era?.cnt ?? 0, ec: ec?.cnt ?? 0 };
 }
 
 // ─── Subscribers ──────────────────────────────────────────────────────────────
 
-/**
- * Returns all active (opted-in and confirmed) subscribers.
- */
-export async function getActiveSubscribers(
-  db: D1Database
-): Promise<DbSubscriber[]> {
+export async function getActiveSubscribers(db: D1Database): Promise<DbSubscriber[]> {
   const result = await db
-    .prepare('SELECT * FROM subscribers WHERE active = 1 AND confirmed = 1')
+    .prepare('SELECT * FROM subscribers WHERE active = 1 AND confirmed = 1 ORDER BY created_at')
     .all<DbSubscriber>();
   return result.results;
 }
 
-/**
- * Returns all subscribers (for admin view).
- */
-export async function getAllSubscribers(
-  db: D1Database
-): Promise<DbSubscriber[]> {
+export async function getAllSubscribers(db: D1Database): Promise<DbSubscriber[]> {
   const result = await db
-    .prepare('SELECT * FROM subscribers')
+    .prepare('SELECT * FROM subscribers ORDER BY created_at DESC')
     .all<DbSubscriber>();
   return result.results;
 }
 
-/**
- * Returns a specific subscriber by email.
- */
-export async function getSubscriberByEmail(
-  db: D1Database,
-  email: string
-): Promise<DbSubscriber | null> {
-  const result = await db
-    .prepare('SELECT * FROM subscribers WHERE email = ?')
-    .bind(email)
-    .first<DbSubscriber>();
-  return result || null;
-}
-
-/**
- * Adds a pending (unconfirmed) subscriber. Returns the subscriber record.
- */
-export async function addPendingSubscriber(
-  db: D1Database,
-  email: string,
-  name: string | null,
-  confirmToken: string,
-  unsubscribeToken: string,
-  preferences?: string
-): Promise<DbSubscriber> {
-  await db
-    .prepare(
-      `INSERT INTO subscribers (email, name, active, confirmed, confirm_token, unsubscribe_token, preferences, created_at)
-       VALUES (?, ?, 0, 0, ?, ?, ?, datetime('now'))`
-    )
-    .bind(email, name, confirmToken, unsubscribeToken, preferences || null)
-    .run();
-  
-  const subscriber = await getSubscriberByEmail(db, email);
-  if (!subscriber) throw new Error('Failed to retrieve newly inserted subscriber');
-  return subscriber;
-}
-
-/**
- * Confirms a subscription by token. Returns the subscriber record if found.
- */
-export async function confirmSubscriber(
-  db: D1Database,
-  confirmToken: string
-): Promise<DbSubscriber | null> {
-  const result = await db
-    .prepare('SELECT * FROM subscribers WHERE confirm_token = ?')
-    .bind(confirmToken)
-    .first<DbSubscriber>();
-  
-  if (!result) return null;
-
-  await db
-    .prepare('UPDATE subscribers SET confirmed = 1 WHERE id = ?')
-    .bind(result.id)
-    .run();
-  
-  return { ...result, confirmed: 1 };
-}
-
-/**
- * Unsubscribes a subscriber by token.
- */
-export async function unsubscribeByToken(
-  db: D1Database,
-  unsubscribeToken: string
-): Promise<DbSubscriber | null> {
-  const result = await db
-    .prepare('SELECT * FROM subscribers WHERE unsubscribe_token = ?')
-    .bind(unsubscribeToken)
-    .first<DbSubscriber>();
-  
-  if (!result) return null;
-
-  await db
-    .prepare('UPDATE subscribers SET active = 0 WHERE id = ?')
-    .bind(result.id)
-    .run();
-  
-  return { ...result, active: 0 };
-}
-
-/**
- * Deletes a subscriber by ID.
- */
-export async function deleteSubscriber(
-  db: D1Database,
-  subscriberId: number
-): Promise<void> {
-  await db
-    .prepare('DELETE FROM subscribers WHERE id = ?')
-    .bind(subscriberId)
-    .run();
-}
-
-/**
- * Deletes all subscribers with confirmed=0 AND created_at older than 48 hours.
- * Used by the cron job to clean up unconfirmed sign-ups.
- */
-export async function deleteStalePendingSubscribers(
-  db: D1Database,
-  hoursAgo = 48
-): Promise<number> {
-  const result = await db
-    .prepare(
-      `DELETE FROM subscribers 
-       WHERE confirmed = 0 AND created_at < datetime('now', '-${hoursAgo} hours')`
-    )
-    .run();
-  return result.meta.changes || 0;
-}
-
-// ─── Config/state ────────────────────────────────────────────────────────────
-
-/**
- * Checks if an email has been sent today (in target timezone, not UTC).
- * Used by DST guard to prevent duplicate digests.
- * 
- * For Pacific/Auckland (UTC+12 winter, UTC+13 summer), we calculate the date
- * in that timezone and check if the email was sent on that same date.
- */
-export async function hasEmailBeenSentToday(db: D1Database, timezone: string): Promise<boolean> {
-  // Fetch the stored timestamp
-  const row = await db
-    .prepare(`SELECT value FROM config WHERE key = 'last_email_sent_at'`)
-    .first<{ value: string }>();
-  
-  if (!row?.value) return false;
-
-  // Convert both timestamps to dates in the target timezone
-  // For Pacific/Auckland, we use Intl.DateTimeFormat which auto-handles DST
-  try {
-    const now = new Date();
-    const storedDate = new Date(row.value);
-    
-    // Format both dates as YYYY-MM-DD in the target timezone
-    const formatter = new Intl.DateTimeFormat('en-NZ', {
-      timeZone: timezone,
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-    });
-    
-    const todayStr = formatter.format(now);
-    const storedStr = formatter.format(storedDate);
-    
-    console.log(`ERA Digest: DST check — stored=${storedStr}, today=${todayStr} (${timezone})`);
-    
-    // Both should be "YYYY-MM-DD" formatted strings
-    return storedStr === todayStr;
-  } catch (err) {
-    // Fallback: if Intl fails, use simple UTC date comparison with offset
-    // This is a safety net only — the Intl approach should work
-    console.warn(`ERA Digest: Intl.DateTimeFormat failed, falling back to UTC: ${err}`);
-    const storedDate = new Date(row.value);
-    const now = new Date();
-    
-    // Simple UTC fallback: return false if more than 12 hours have passed
-    // This prevents duplicate sends within a 12-hour window
-    const hoursSince = (now.getTime() - storedDate.getTime()) / (1000 * 60 * 60);
-    return hoursSince < 12;
-  }
-}
-
-/**
- * Records that an email was sent (current UTC timestamp).
- */
-export async function recordEmailSent(db: D1Database): Promise<void> {
-  await db
-    .prepare(
-      `INSERT INTO config (key, value, updated_at) 
-       VALUES ('last_email_sent_at', datetime('now'), datetime('now'))
-       ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`
-    )
-    .run();
-}
-
-/**
- * Records when a pipeline run occurred (for monitoring/debugging).
- * If no label is provided, records to 'last_run_at'.
- */
-export async function recordRunAt(db: D1Database, label?: string): Promise<void> {
-  const key = label ? `run_${label}` : 'last_run_at';
-  await db
-    .prepare(
-      `INSERT INTO config (key, value, updated_at) 
-       VALUES (?, datetime('now'), datetime('now'))
-       ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`
-    )
-    .bind(key)
-    .run();
-}
-
-/**
- * Retrieves a config value.
- */
-export async function getConfig(db: D1Database, key: string): Promise<string | null> {
-  const result = await db
-    .prepare('SELECT value FROM config WHERE key = ?')
-    .bind(key)
-    .first<{ value: string }>();
-  return result?.value ?? null;
-}
-
-/**
- * Sets (upserts) a config value by key.
- */
-export async function setConfig(db: D1Database, key: string, value: string): Promise<void> {
-  await db
-    .prepare(`INSERT OR REPLACE INTO config (key, value, updated_at) VALUES (?, ?, datetime('now'))`)
-    .bind(key, value)
-    .run();
-}
-
-/**
- * Looks up an active subscriber by their unsubscribe token.
- */
-export async function getSubscriberByToken(
-  db: D1Database,
-  token: string
-): Promise<DbSubscriber | null> {
-  return db
-    .prepare('SELECT * FROM subscribers WHERE unsubscribe_token = ?')
-    .bind(token)
-    .first<DbSubscriber>();
-}
-
-/**
- * Updates the preferences JSON blob for a subscriber identified by unsubscribe token.
- */
-export async function updatePreferences(
-  db: D1Database,
-  token: string,
-  preferences: string
-): Promise<void> {
-  await db
-    .prepare('UPDATE subscribers SET preferences = ? WHERE unsubscribe_token = ?')
-    .bind(preferences, token)
-    .run();
-}
-
-/**
- * Alias for addPendingSubscriber to match the old interface.
- */
 export async function addSubscriberPending(
   db: D1Database,
   email: string,
   name: string | null,
-  preferences?: string
+  preferences: string | null
 ): Promise<{ token: string; alreadyActive: boolean }> {
-  const existing = await getSubscriberByEmail(db, email);
-  if (existing && existing.active && existing.confirmed) {
-    return { token: existing.unsubscribe_token ?? '', alreadyActive: true };
+  // Check if already active
+  const existing = await db
+    .prepare("SELECT active FROM subscribers WHERE email = ?")
+    .bind(email)
+    .first<{ active: number }>();
+  if (existing?.active === 1) {
+    return { token: '', alreadyActive: true };
   }
-  
-  // generateToken() was just a wrapper for crypto.randomUUID(); call it directly to avoid the dynamic import
-  const confirmToken = crypto.randomUUID();
+  const token = crypto.randomUUID();
   const unsubscribeToken = crypto.randomUUID();
-  
-  await addPendingSubscriber(db, email, name, confirmToken, unsubscribeToken, preferences);
-  return { token: confirmToken, alreadyActive: false };
+  await db.prepare(
+    `INSERT INTO subscribers (email, name, active, confirmed, confirm_token, unsubscribe_token, preferences, created_at)
+     VALUES (?, ?, 0, 0, ?, ?, ?, datetime('now'))`
+  ).bind(email, name, token, unsubscribeToken, preferences).run();
+  return { token, alreadyActive: false };
 }
 
-// ─── Processing lock ──────────────────────────────────────────────────────
+export async function confirmSubscriber(db: D1Database, token: string): Promise<boolean> {
+  const result = await db
+    .prepare("UPDATE subscribers SET active = 1, confirmed = 1, confirmed_at = datetime('now') WHERE confirm_token = ?")
+    .bind(token)
+    .run();
+  return (result.meta.changes ?? 0) > 0;
+}
 
-/**
- * Sets a processing lock to prevent concurrent cron executions.
- * Uses INSERT OR REPLACE with timestamp to track lock age.
- */
-export async function setProcessingLock(db: D1Database, locked: boolean): Promise<void> {
-  const value = locked ? '1' : '0';
-  const now = new Date().toISOString(); // ISO 8601: "2026-06-13T01:15:23.000Z"
+export async function unsubscribeByToken(db: D1Database, token: string): Promise<boolean> {
+  const result = await db
+    .prepare("UPDATE subscribers SET active = 0, confirmed = 0 WHERE unsubscribe_token = ?")
+    .bind(token)
+    .run();
+  return (result.meta.changes ?? 0) > 0;
+}
+
+export async function deleteSubscriber(db: D1Database, email: string): Promise<boolean> {
+  const result = await db
+    .prepare("DELETE FROM subscribers WHERE email = ?")
+    .bind(email)
+    .run();
+  return (result.meta.changes ?? 0) > 0;
+}
+
+export async function getSubscriberByToken(
+  db: D1Database,
+  token: string
+): Promise<{ email: string; name: string | null; preferences: string | null } | null> {
+  const row = await db
+    .prepare("SELECT email, name, preferences FROM subscribers WHERE unsubscribe_token = ?")
+    .bind(token)
+    .first<{ email: string; name: string | null; preferences: string | null }>();
+  return row ?? null;
+}
+
+export async function updatePreferences(
+  db: D1Database,
+  email: string,
+  preferences: string
+): Promise<void> {
   await db
-    .prepare(`INSERT OR REPLACE INTO config (key, value, updated_at) VALUES ('is_processing', ?, ?)`)
-    .bind(value, now)
+    .prepare("UPDATE subscribers SET preferences = ? WHERE email = ?")
+    .bind(preferences, email)
     .run();
 }
 
-/**
- * Checks if a processing lock is currently active.
- * Returns false if the lock is stale (older than 10 minutes).
- * This prevents deadlock if a cron run crashes without releasing the lock.
- */
-export async function isProcessing(db: D1Database): Promise<boolean> {
+export async function deleteStalePendingSubscribers(
+  db: D1Database,
+  maxAgeHours: number
+): Promise<number> {
   const result = await db
-    .prepare(`SELECT value, updated_at FROM config WHERE key = 'is_processing'`)
-    .first<{ value: string; updated_at: string }>();
-  
-  if (result?.value !== '1') return false;
-  
-  // If lock is older than 10 minutes, consider it stale and ignore it
-  try {
-    // Normalize date string: MySQL format "YYYY-MM-DD HH:MM:SS" → "YYYY-MM-DDTHH:MM:SS"
-    // ISO 8601 "2026-06-13T01:15:23.000Z" passes through unchanged
-    const normalizedDate = result.updated_at.replace(' ', 'T');
-    // Append 'Z' if no timezone suffix (MySQL format has none, so treat as UTC)
-    const dateStr = normalizedDate.endsWith('Z') || /[+-]\d{2}:\d{2}$/.test(normalizedDate)
-      ? normalizedDate
-      : normalizedDate + 'Z';
-    const lockTime = new Date(dateStr).getTime();
-    if (isNaN(lockTime)) {
-      console.warn(`Unparseable lock timestamp: "${result.updated_at}", treating as stale`);
-      await setProcessingLock(db, false); // clear the corrupt lock
-      return false;
-    }
-    const now = Date.now();
-    const lockAgeMs = now - lockTime;
-    const lockTimeoutMs = 10 * 60 * 1000; // 10 minutes
-    
-    if (lockAgeMs > lockTimeoutMs) {
-      console.warn(`Stale processing lock detected (age: ${Math.round(lockAgeMs / 1000)}s), treating as unlocked`);
-      await setProcessingLock(db, false); // clear the stale lock automatically
-      return false;
-    }
-    
-    return true;
-  } catch (err) {
-    console.warn(`Error checking lock age: ${err}, clearing lock and continuing`);
-    await setProcessingLock(db, false).catch(() => {});
-    return false;
-  }
+    .prepare(`DELETE FROM subscribers WHERE active = 0 AND created_at < datetime('now', '-${maxAgeHours} hours')`)
+    .run();
+  return result.meta.changes ?? 0;
 }
 
-// ─── LLM Prompts ──────────────────────────────────────────────────────────
+// ─── Config ───────────────────────────────────────────────────────────────────
 
-/**
- * Retrieves the current LLM system prompt for a given type.
- * type: 'era' or 'ec' (Employment Court)
- */
-export async function getPrompt(db: D1Database, type: 'era' | 'ec'): Promise<string> {
-  const key = type === 'era' ? 'prompt_era' : 'prompt_ec';
-  const result = await db
-    .prepare('SELECT value FROM config WHERE key = ?')
+export async function getConfig(db: D1Database, key: string): Promise<string | null> {
+  const row = await db
+    .prepare("SELECT value FROM config WHERE key = ?")
     .bind(key)
     .first<{ value: string }>();
-  
-  if (!result?.value) {
-    // Fallback: if prompt not in DB (shouldn't happen after migration 0007), return a minimal default
-    return type === 'era' 
-      ? 'You are a legal analyst. Provide a structured summary with these sections: PARTIES, REPRESENTATIVES, FACTS, LEGAL ISSUES, HOW THE ISSUES WERE RESOLVED, OUTCOME, REMEDY.'
-      : 'You are a legal analyst. Provide a structured 7-section summary: JUDGE & DATE, PARTIES, REPRESENTATIVES, FACTS, ERA FINDINGS, EMPLOYMENT COURT ISSUES RAISED, HOW THE EMPLOYMENT COURT ISSUES WERE RESOLVED, OUTCOME & REMEDY.';
-  }
-  
-  return result.value;
+  return row?.value ?? null;
 }
 
-/**
- * Updates the LLM system prompt for a given type.
- * type: 'era' or 'ec'
- * prompt: The new prompt text
- */
-export async function setPrompt(db: D1Database, type: 'era' | 'ec', prompt: string): Promise<void> {
-  const key = type === 'era' ? 'prompt_era' : 'prompt_ec';
-  await db
-    .prepare(`INSERT OR REPLACE INTO config (key, value, updated_at) VALUES (?, ?, datetime('now'))`)
-    .bind(key, prompt)
-    .run();
+export async function setConfig(db: D1Database, key: string, value: string): Promise<void> {
+  await db.prepare(
+    "INSERT OR REPLACE INTO config (key, value, updated_at) VALUES (?, ?, datetime('now'))"
+  ).bind(key, value).run();
 }
 
-// ─── Prompt version history ───────────────────────────────────────────────────
+// ─── Email tracking ───────────────────────────────────────────────────────────
 
-export interface PromptVersion {
-  id: number;
-  prompt_key: string;
-  content: string;
-  saved_at: string;
+export async function hasEmailBeenSentToday(db: D1Database, timezone: string): Promise<boolean> {
+  const row = await db
+    .prepare(`SELECT value FROM config WHERE key = 'last_email_sent_at'`)
+    .first<{ value: string }>();
+  if (!row?.value) return false;
+  const sentDate = new Date(row.value);
+  const now = new Date();
+  const formatter = new Intl.DateTimeFormat('en-NZ', { timeZone: timezone });
+  return formatter.format(sentDate) === formatter.format(now);
 }
 
-/**
- * Returns the last N prompt versions for a given key, newest first.
- */
+export async function recordEmailSent(db: D1Database): Promise<void> {
+  await db.prepare(
+    "INSERT OR REPLACE INTO config (key, value, updated_at) VALUES ('last_email_sent_at', ?, datetime('now'))"
+  ).bind(new Date().toISOString()).run();
+}
+
+export async function recordRunAt(db: D1Database): Promise<void> {
+  await db.prepare(
+    "INSERT OR REPLACE INTO config (key, value, updated_at) VALUES ('last_run_at', ?, datetime('now'))"
+  ).bind(new Date().toISOString()).run();
+}
+
+// ─── Processing lock ──────────────────────────────────────────────────────────
+
+export async function setProcessingLock(db: D1Database, locked: boolean): Promise<void> {
+  await db.prepare(
+    "INSERT OR REPLACE INTO config (key, value, updated_at) VALUES ('is_processing', ?, datetime('now'))"
+  ).bind(locked ? '1' : '0').run();
+}
+
+export async function isProcessing(db: D1Database): Promise<boolean> {
+  const row = await db
+    .prepare("SELECT value, updated_at FROM config WHERE key = 'is_processing'")
+    .first<{ value: string; updated_at: string }>();
+  if (!row || row.value !== '1') return false;
+  // 10-minute auto-expiry
+  const lockTime = new Date(row.updated_at).getTime();
+  return Date.now() - lockTime < 600000;
+}
+
+// ─── Prompts ──────────────────────────────────────────────────────────────────
+
+export async function savePromptWithHistory(
+  db: D1Database,
+  promptKey: string,
+  content: string
+): Promise<void> {
+  // Save current version to history
+  await db.prepare(
+    `INSERT INTO prompt_versions (prompt_key, content, saved_at)
+     SELECT ?, value, datetime('now') FROM config WHERE key = ?`
+  ).bind(promptKey, promptKey).run();
+  // Update the active prompt
+  await db.prepare(
+    "INSERT OR REPLACE INTO config (key, value, updated_at) VALUES (?, ?, datetime('now'))"
+  ).bind(promptKey, content).run();
+}
+
 export async function getPromptVersions(
   db: D1Database,
-  key: 'prompt_era' | 'prompt_ec',
+  promptKey: string,
   limit = 10
-): Promise<PromptVersion[]> {
+): Promise<Array<{ id: number; content: string; saved_at: string }>> {
   const result = await db
-    .prepare('SELECT * FROM prompt_versions WHERE prompt_key = ? ORDER BY id DESC LIMIT ?')
-    .bind(key, limit)
-    .all<PromptVersion>();
+    .prepare(`SELECT id, content, saved_at FROM prompt_versions WHERE prompt_key = ? ORDER BY saved_at DESC LIMIT ?`)
+    .bind(promptKey, limit)
+    .all<{ id: number; content: string; saved_at: string }>();
   return result.results;
 }
 
-/**
- * Saves the current prompt value to version history, then writes the new value to config.
- * Trims history to keep only the last 10 versions per key.
- * Safe to call even if config has no current value (initial seed).
- */
-export async function savePromptWithHistory(
-  db: D1Database,
-  key: 'prompt_era' | 'prompt_ec',
-  newContent: string
-): Promise<void> {
-  // Snapshot current value before overwriting
-  const current = await db
-    .prepare('SELECT value FROM config WHERE key = ?')
-    .bind(key)
-    .first<{ value: string }>();
-
-  if (current?.value?.trim()) {
-    // Archive current value
-    await db
-      .prepare(
-        `INSERT INTO prompt_versions (prompt_key, content, saved_at)
-         VALUES (?, ?, datetime('now'))`
-      )
-      .bind(key, current.value)
-      .run();
-
-    // Keep only the last 10 versions — delete anything outside the top 10
-    await db
-      .prepare(
-        `DELETE FROM prompt_versions
-         WHERE prompt_key = ? AND id NOT IN (
-           SELECT id FROM prompt_versions WHERE prompt_key = ? ORDER BY id DESC LIMIT 10
-         )`
-      )
-      .bind(key, key)
-      .run();
-  }
-
-  // Write new value to config
-  await db
-    .prepare(
-      `INSERT OR REPLACE INTO config (key, value, updated_at)
-       VALUES (?, ?, datetime('now'))`
-    )
-    .bind(key, newContent)
-    .run();
-}
-
-/**
- * Reverts a prompt to a specific version by its ID.
- * Saves the current prompt to history first (so the revert itself is undoable).
- * Returns false if the version ID is not found.
- */
 export async function revertPromptToVersion(
   db: D1Database,
-  key: 'prompt_era' | 'prompt_ec',
+  promptKey: string,
   versionId: number
 ): Promise<boolean> {
   const version = await db
-    .prepare('SELECT * FROM prompt_versions WHERE id = ? AND prompt_key = ?')
-    .bind(versionId, key)
-    .first<PromptVersion>();
-
+    .prepare(`SELECT content FROM prompt_versions WHERE id = ? AND prompt_key = ?`)
+    .bind(versionId, promptKey)
+    .first<{ content: string }>();
   if (!version) return false;
-
-  // Remove this version from history — it's about to become the live prompt
-  await db
-    .prepare('DELETE FROM prompt_versions WHERE id = ?')
-    .bind(versionId)
-    .run();
-
-  // Archive current + write reverted content (savePromptWithHistory handles both)
-  await savePromptWithHistory(db, key, version.content);
-
+  await db.prepare(
+    "INSERT OR REPLACE INTO config (key, value, updated_at) VALUES (?, ?, datetime('now'))"
+  ).bind(promptKey, version.content).run();
   return true;
 }
 
 // ─── Case awards ──────────────────────────────────────────────────────────────
 
 export interface CaseAwardRow {
-  id: number;
   pdf_filename: string;
   source: string;
   hhd_amount: number | null;
@@ -697,15 +394,14 @@ export interface CaseAwardRow {
   weekly_wage: number | null;
   costs_awarded: number | null;
   costs_awarded_text: string | null;
-  reinstatement: number;
-  reinstatement_sought: number;
-  employee_status: string | null;
+  reinstatement: boolean | null;
+  reinstatement_sought: boolean | null;
+  employee_status: boolean | null;
   outcome: string | null;
-  extraction_method: string;
-  created_at: string;
+  extraction_method: string | null;
   decision_date: string | null;
   employment_tenure: string | null;
-  contribution_applied: number;
+  contribution_applied: boolean | null;
   contribution_reduction: string | null;
   contribution_conduct: string | null;
   penalties: number | null;
@@ -719,87 +415,46 @@ export interface CaseAwardWithCase extends CaseAwardRow {
   case_url: string;
 }
 
-/**
- * Inserts or updates a case award record.
- * Safe to call multiple times — upserts on (pdf_filename, source).
- */
 export async function insertCaseAward(
   db: D1Database,
   pdfFilename: string,
   source: string,
-  data: {
-    hhd_amount: number | null;
-    lost_wages: number | null;
-    lost_wages_weeks: number | null;
-    weekly_wage: number | null;
-    costs_awarded: number | null;
-    costs_awarded_text?: string | null;
-    reinstatement: boolean;
-    reinstatement_sought?: boolean;
-    employee_status?: 'employee' | 'contractor' | null;
-    outcome: string | null;
-    decision_date?: string | null;
-    employment_tenure?: string | null;
-    contribution_applied?: boolean;
-    contribution_reduction?: string | null;
-    contribution_conduct?: string | null;
-    penalties?: number | null;
-  },
+  awardsData: Record<string, any>,
   extractionMethod: string
 ): Promise<void> {
-  await db
-    .prepare(`
-      INSERT INTO case_awards
-        (pdf_filename, source, hhd_amount, lost_wages, lost_wages_weeks, weekly_wage,
-         costs_awarded, costs_awarded_text, reinstatement, reinstatement_sought, employee_status, outcome, extraction_method,
-         decision_date, employment_tenure, contribution_applied, contribution_reduction,
-         contribution_conduct, penalties)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      ON CONFLICT(pdf_filename, source) DO UPDATE SET
-        hhd_amount            = excluded.hhd_amount,
-        lost_wages            = excluded.lost_wages,
-        lost_wages_weeks      = excluded.lost_wages_weeks,
-        weekly_wage           = excluded.weekly_wage,
-        costs_awarded         = excluded.costs_awarded,
-        costs_awarded_text    = excluded.costs_awarded_text,
-        reinstatement         = excluded.reinstatement,
-        reinstatement_sought  = excluded.reinstatement_sought,
-        employee_status       = excluded.employee_status,
-        outcome               = excluded.outcome,
-        extraction_method     = excluded.extraction_method,
-        decision_date         = excluded.decision_date,
-        employment_tenure     = excluded.employment_tenure,
-        contribution_applied  = excluded.contribution_applied,
-        contribution_reduction= excluded.contribution_reduction,
-        contribution_conduct  = excluded.contribution_conduct,
-        penalties             = excluded.penalties
-    `)
-    .bind(
-      pdfFilename, source,
-      data.hhd_amount, data.lost_wages, data.lost_wages_weeks,
-      data.weekly_wage, data.costs_awarded,
-      data.costs_awarded_text ?? null,
-      data.reinstatement ? 1 : 0,
-      data.reinstatement_sought ? 1 : 0,
-      data.employee_status ?? null,
-      data.outcome, extractionMethod,
-      data.decision_date ?? null,
-      data.employment_tenure ?? null,
-      data.contribution_applied ? 1 : 0,
-      data.contribution_reduction ?? null,
-      data.contribution_conduct ?? null,
-      data.penalties ?? null
-    )
-    .run();
+  await db.prepare(
+    `INSERT OR REPLACE INTO case_awards
+     (pdf_filename, source, hhd_amount, lost_wages, lost_wages_weeks, weekly_wage,
+      costs_awarded, costs_awarded_text, reinstatement, reinstatement_sought, employee_status,
+      outcome, extraction_method, decision_date, employment_tenure,
+      contribution_applied, contribution_reduction, contribution_conduct, penalties)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).bind(
+    pdfFilename,
+    source,
+    awardsData.hhd_amount ?? null,
+    awardsData.lost_wages ?? null,
+    awardsData.lost_wages_weeks ?? null,
+    awardsData.weekly_wage ?? null,
+    awardsData.costs_awarded ?? null,
+    awardsData.costs_awarded_text ?? null,
+    awardsData.reinstatement ?? null,
+    awardsData.reinstatement_sought ?? null,
+    awardsData.employee_status ?? null,
+    awardsData.outcome ?? null,
+    extractionMethod,
+    awardsData.decision_date ?? null,
+    awardsData.employment_tenure ?? null,
+    awardsData.contribution_applied ?? null,
+    awardsData.contribution_reduction ?? null,
+    awardsData.contribution_conduct ?? null,
+    awardsData.penalties ?? null,
+  ).run();
 }
 
-/**
- * Returns all award rows joined with their seen_cases metadata.
- * Used by the public /awards page.
- */
 export async function getCaseAwardRows(
   db: D1Database,
-  source = 'ERA'
+  source: string = 'ERA'
 ): Promise<CaseAwardWithCase[]> {
   const result = await db
     .prepare(`
@@ -809,48 +464,38 @@ export async function getCaseAwardRows(
       WHERE ca.source = ?
         AND sc.summary NOT LIKE '[COSTS ONLY]%'
         AND sc.summary NOT LIKE '[CONSENT]%'
-        AND sc.summary NOT LIKE '[ENFORCEMENT]%'
-      ORDER BY sc.date_published DESC, sc.processed_at DESC
+      ORDER BY ca.pdf_filename DESC
     `)
     .bind(source)
     .all<CaseAwardWithCase>();
   return result.results;
 }
 
-/**
- * Returns ERA cases that have a summary but no entry in case_awards.
- * Used by the backfill-awards endpoint to find cases needing extraction.
- */
 export async function getCasesWithoutAwards(
   db: D1Database,
-  source = 'ERA'
+  source: string = 'ERA'
 ): Promise<DbSeenCase[]> {
   const result = await db
-    .prepare(`
-      SELECT sc.*
-      FROM seen_cases sc
-      LEFT JOIN case_awards ca ON ca.pdf_filename = sc.pdf_filename AND ca.source = sc.source
-      WHERE sc.source = ?
-        AND sc.summary IS NOT NULL
-        AND sc.summary NOT LIKE '(seeded%'
-        AND sc.summary NOT LIKE 'Summary unavailable%'
-        AND sc.summary NOT LIKE '[COSTS ONLY]%'
-        AND sc.summary NOT LIKE '[CONSENT]%'
-        AND sc.summary NOT LIKE '[ENFORCEMENT]%'
-        AND ca.id IS NULL
-      ORDER BY sc.processed_at DESC
-    `)
+    .prepare(`SELECT s.* FROM seen_cases s LEFT JOIN case_awards a ON s.pdf_filename = a.pdf_filename AND s.source = a.source WHERE a.pdf_filename IS NULL AND s.source = ? AND s.summary IS NOT NULL ORDER BY s.processed_at DESC`)
     .bind(source)
     .all<DbSeenCase>();
   return result.results;
 }
 
-// ─── Error log ──────────────────────────────────────────────────────────────
-
 /**
- * Inserts a new entry into the error_log table.
- * Replaces the old single config:last_error pattern with a proper log.
+ * Returns all visible cases ordered by processed_at DESC (for computing page numbers).
  */
+export async function getVisibleCaseOrder(
+  db: D1Database
+): Promise<Array<{ pdf_filename: string }>> {
+  const result = await db
+    .prepare(`SELECT pdf_filename FROM seen_cases WHERE source = 'ERA' AND (summary IS NULL OR (summary NOT LIKE '[COSTS ONLY]%' AND summary NOT LIKE '[CONSENT]%')) ORDER BY processed_at DESC`)
+    .all<{ pdf_filename: string }>();
+  return result.results;
+}
+
+// ─── Error log ────────────────────────────────────────────────────────────────
+
 export async function insertErrorLog(
   db: D1Database,
   level: string,
@@ -859,18 +504,14 @@ export async function insertErrorLog(
   details?: string | null,
   caseId?: string | null
 ): Promise<void> {
-  await db
-    .prepare(
-      `INSERT INTO error_log (level, source, message, details, case_id, created_at)
-       VALUES (?, ?, ?, ?, ?, datetime('now'))`
-    )
+  await db.prepare(
+    `INSERT INTO error_log (level, source, message, details, case_id, created_at)
+     VALUES (?, ?, ?, ?, ?, datetime('now'))`
+  )
     .bind(level, source, message?.substring(0, 1000), details ?? null, caseId ?? null)
     .run();
 }
 
-/**
- * Returns recent error log entries, newest first.
- */
 export async function getRecentErrors(
   db: D1Database,
   limit = 20,
@@ -895,13 +536,30 @@ export async function getRecentErrors(
   return result.results;
 }
 
-/**
- * Deletes error log entries older than N days.
- * Returns the number of deleted rows.
- */
 export async function pruneErrorLog(db: D1Database, daysOld = 30): Promise<number> {
   const result = await db
     .prepare(`DELETE FROM error_log WHERE created_at < datetime('now', '-${daysOld} days')`)
     .run();
   return result.meta.changes || 0;
+}
+
+/** Search seen_cases by query against title, member, category, pdf_filename */
+export async function searchCases(
+  db: D1Database,
+  query: string,
+  field?: string,
+  limit = 20
+): Promise<DbSeenCase[]> {
+  const term = `%${query}%`;
+  let sql: string;
+  let params: unknown[];
+  if (field && ['title', 'member', 'category', 'pdf_filename'].includes(field)) {
+    sql = `SELECT * FROM seen_cases WHERE ${field} LIKE ? ORDER BY processed_at DESC LIMIT ?`;
+    params = [term, limit];
+  } else {
+    sql = `SELECT * FROM seen_cases WHERE title LIKE ? OR member LIKE ? OR category LIKE ? OR pdf_filename LIKE ? ORDER BY processed_at DESC LIMIT ?`;
+    params = [term, term, term, term, limit];
+  }
+  const result = await db.prepare(sql).bind(...params).all<DbSeenCase>();
+  return result.results;
 }
