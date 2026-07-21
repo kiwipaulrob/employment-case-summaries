@@ -1179,10 +1179,10 @@ export function getDashboardHtml(status: {
           const d = await resp.json();
           if (lastIdEl) lastIdEl.textContent = d.last_era_id ?? '—';
           if (caseEl) caseEl.textContent = d.latest
-            ? (d.latest.title?.substring(0, 55) || '—') + ' · ID ' + (d.latest.era_id || d.latest.pdf_filename?.replace('.pdf','') || '—')
+            ? (d.latest.title?.substring(0, 55) || '—') + ' · ' + (d.latest.nzera_number ? 'NZERA ' + d.latest.nzera_number : d.latest.era_id ? 'ID ' + d.latest.era_id : d.latest.pdf_filename?.replace('.pdf','') || '—')
             : '—';
           if (oldestEl) oldestEl.textContent = d.oldest
-            ? (d.oldest.title?.substring(0, 55) || '—') + ' · ID ' + (d.oldest.era_id || d.oldest.pdf_filename?.replace('.pdf','') || '—')
+            ? (d.oldest.title?.substring(0, 55) || '—') + ' · ' + (d.oldest.nzera_number ? 'NZERA ' + d.oldest.nzera_number : d.oldest.era_id ? 'ID ' + d.oldest.era_id : d.oldest.pdf_filename?.replace('.pdf','') || '—')
             : '—';
           if (totalEl) totalEl.textContent = d.total_cases ?? '—';
         }
