@@ -681,8 +681,6 @@ export function preferencesPage(
   saved?: boolean,
   unsubscribed?: boolean
 ): string {
-  let prefs = { show_costs: false, show_consent: false };
-  try { prefs = JSON.parse(subscriber.preferences || '{}'); } catch {}
   const msg = unsubscribed
     ? '<div class="alert alert-success"><strong>✓ Unsubscribed.</strong> You will no longer receive ERA Digest emails.</div>'
     : saved
