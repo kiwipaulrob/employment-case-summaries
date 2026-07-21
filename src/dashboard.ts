@@ -798,8 +798,10 @@ export function getDashboardHtml(status: {
             <select id="search-field" style="width:100%;">
               <option value="">All fields</option>
               <option value="title">Title</option>
+              <option value="summary">Summary</option>
               <option value="member">Member</option>
               <option value="category">Category</option>
+              <option value="pdf_filename">Filename</option>
             </select>
           </div>
           <button class="button" onclick="searchCases()" id="search-btn">Search</button>
