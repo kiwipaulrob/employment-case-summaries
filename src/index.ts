@@ -218,9 +218,7 @@ export default {
       const formData = await request.formData();
       const email = (formData.get('email') as string ?? '').trim().toLowerCase();
       const name = (formData.get('name') as string ?? '').trim() || null;
-      const showCosts = formData.get('show_costs') === '1';
-      const showConsent = formData.get('show_consent') === '1';
-      const preferences = JSON.stringify({ show_costs: showCosts, show_consent: showConsent });
+      const preferences = JSON.stringify({});
 
       if (!email || !isValidEmail(email)) {
         const [cases, totalCount] = await Promise.all([
@@ -263,13 +261,11 @@ export default {
     if (request.method === 'POST' && url.pathname === '/preferences') {
       const formData = await request.formData();
       const token = (formData.get('token') as string ?? '').trim();
-      const showCosts = formData.get('show_costs') === '1';
-      const showConsent = formData.get('show_consent') === '1';
       if (!token) return htmlResponse(invalidTokenPage());
       const sub = await getSubscriberByToken(env.DB, token);
       if (!sub) return htmlResponse(invalidTokenPage());
-      await updatePreferences(env.DB, token, JSON.stringify({ show_costs: showCosts, show_consent: showConsent }));
-      return htmlResponse(preferencesPage({ ...sub, preferences: JSON.stringify({ show_costs: showCosts, show_consent: showConsent }) }, true));
+      await updatePreferences(env.DB, token, JSON.stringify({}));
+      return htmlResponse(preferencesPage({ ...sub, preferences: JSON.stringify({}) }, true));
     }
 
     // GET /subscribed — "Check your email" page

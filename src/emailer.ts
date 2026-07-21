@@ -546,14 +546,13 @@ export async function sendDigestToAll(
         ? `${siteUrl}/preferences?token=${subscriber.unsubscribe_token}`
         : `${siteUrl}/preferences`;
 
-      // Filter cases by subscriber preferences
-      let prefs = { show_costs: false, show_consent: false };
-      try { prefs = JSON.parse(subscriber.preferences || '{}'); } catch {}
+      // Filter out classified cases (always excluded from email)
       const filteredCases = cases.filter(c => {
         const firstLine = (c.summary || '').split('\n')[0].trim();
-        if (firstLine === '[COSTS ONLY]' && !prefs.show_costs) return false;
-        if (firstLine === '[CONSENT]' && !prefs.show_consent) return false;
+        if (firstLine === '[COSTS ONLY]') return false;
+        if (firstLine === '[CONSENT]') return false;
         if (firstLine === '[ENFORCEMENT]') return false;
+        if (firstLine === '[LABOUR INSPECTOR]') return false;
         return true;
       });
 

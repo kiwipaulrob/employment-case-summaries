@@ -700,16 +700,7 @@ export function preferencesPage(
       ${msg}
       <form method="POST" action="/preferences" style="text-align: left; max-width: 400px; margin: 0 auto;">
         <input type="hidden" name="token" value="${escapeHtml(subscriber.email)}">
-        <div class="pref-row" style="margin-bottom: 1rem;">
-          <label class="filter-check" style="display: block; margin-bottom: 0.5rem;">
-            <input type="checkbox" name="show_costs" value="1"${prefs.show_costs ? ' checked' : ''}>
-            Include costs decisions
-          </label>
-          <label class="filter-check" style="display: block;">
-            <input type="checkbox" name="show_consent" value="1"${prefs.show_consent ? ' checked' : ''}>
-            Include consent orders
-          </label>
-        </div>
+        <p style="font-size:13px;color:#666;">Costs-only, consent, enforcement, and Labour Inspector cases are always excluded from emails.</p>
         <button type="submit" class="btn-primary" style="width: 100%;">Update preferences</button>
       </form>
       <div class="actions" style="margin-top: 2rem;">

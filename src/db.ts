@@ -151,6 +151,7 @@ export async function getRecentCasesPaged(
   if (excludeConsent) {
     sql += " AND (summary IS NULL OR summary NOT LIKE '[CONSENT]%')";
   }
+  sql += " AND (summary IS NULL OR (summary NOT LIKE '[ENFORCEMENT]%' AND summary NOT LIKE '[LABOUR INSPECTOR]%'))";
   sql += ' ORDER BY processed_at DESC LIMIT ? OFFSET ?';
   params.push(perPage, offset);
   const result = await db.prepare(sql).bind(...params).all<DbSeenCase>();
@@ -170,6 +171,7 @@ export async function getCaseCountPaged(
   if (excludeConsent) {
     sql += " AND (summary IS NULL OR summary NOT LIKE '[CONSENT]%')";
   }
+  sql += " AND (summary IS NULL OR (summary NOT LIKE '[ENFORCEMENT]%' AND summary NOT LIKE '[LABOUR INSPECTOR]%'))";
   const result = await db.prepare(sql).bind(...params).first<{ cnt: number }>();
   return result?.cnt ?? 0;
 }

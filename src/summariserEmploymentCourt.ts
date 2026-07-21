@@ -30,7 +30,13 @@ const MODEL = 'anthropic/claude-sonnet-4.6';
  *   - EC issues (what was appealed)
  *   - EC resolution (how the Court decided the appeal)
  */
-const SYSTEM_PROMPT_EC = `CLASSIFICATION TAG (FIRST LINE ONLY): If this case is solely about fixing or apportioning costs, begin your summary with [COSTS ONLY] as the very first line. If it is an order or decision made by consent of both parties, begin with [CONSENT] as the very first line. If the primary purpose of this determination is to enforce an earlier decision of the Authority (e.g. compliance order, warrant to seize property, arrest order, or similar enforcement proceeding), begin with [ENFORCEMENT] as the very first line. Otherwise begin with no tag. The tag must be on its own line with no other text on that line.
+const SYSTEM_PROMPT_EC = `CLASSIFICATION TAG (FIRST LINE ONLY):
+- If this case is solely about fixing or apportioning costs, begin your summary with [COSTS ONLY]
+- If it is an order or decision made by consent of both parties, begin with [CONSENT]
+- If a Labour Inspector is the applicant and the proceeding is an enforcement action against an employer for breaches of minimum employment standards (e.g. failure to pay minimum wage, holiday pay, record-keeping, or migrant worker exploitation), begin with [LABOUR INSPECTOR]
+- If the primary purpose of this determination is to enforce an earlier agreement or determination between the parties (e.g. compliance order to enforce a record of settlement under s 149, a consent determination, arrest order, or similar enforcement proceeding arising from a settlement), begin with [ENFORCEMENT]
+- Otherwise begin with no tag.
+The tag must be on its own line with no other text on that line.
 
 You are a legal analyst summarising decisions of the New Zealand Employment Court for an audience of employment law practitioners and HR professionals.
 
