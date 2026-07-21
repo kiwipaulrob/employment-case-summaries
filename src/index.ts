@@ -43,6 +43,7 @@ import {
   insertCaseAward, getCaseAwardRows, getCasesWithoutAwards,
   savePromptWithHistory, getPromptVersions, revertPromptToVersion,
   insertErrorLog, getRecentErrors, getVisibleCaseOrder,
+  updateCaseSummary, searchCases,
 } from './db';
 import { scrapeRecentPage, scrapeAllPages, enrichCasesWithDetails, scrapeEraDetailPage } from './scraper';
 import { getPdfContent, getPdfContentFromBytes, type PdfContent } from './pdf';
@@ -1081,8 +1082,8 @@ export default {
         const newCases = await filterNewCases(env.DB, allScraped);
         console.log(`ERA Backfill: ${newCases.length} new (unseen) cases to process`);
 
-        // Process at most 1 case synchronously (stay within Worker time limits)
-        const batch = newCases.slice(0, 1);
+        // Process at most 3 cases synchronously (stay within Worker time limits)
+        const batch = newCases.slice(0, 3);
         let processed = 0;
         let failed = 0;
         let lastError: string | null = null;
@@ -1365,8 +1366,8 @@ Rules:
         const newCases = await filterNewCases(env.DB, allCases);
         console.log(`ERA ID Scrape: ${allCases.length} found, ${newCases.length} new, ${probeCount} probes`);
 
-        // Process up to 5 cases synchronously
-        const batch = newCases.slice(0, 5);
+        // Process up to 10 cases synchronously
+        const batch = newCases.slice(0, 10);
         let processed = 0;
         let failed = 0;
         let lastError: string | null = null;
@@ -1456,8 +1457,8 @@ Rules:
         const newCases = await filterNewCases(env.DB, filtered);
         console.log(`ERA Date Scrape: ${newCases.length} new cases to process`);
 
-        // Process up to 3 cases
-        const batch = newCases.slice(0, 3);
+        // Process up to 5 cases
+        const batch = newCases.slice(0, 5);
         let processed = 0;
         let failed = 0;
         let lastError: string | null = null;
@@ -1975,6 +1976,32 @@ Rules:
       }
     }
 
+    // POST /admin/dashboard/update-case-summary — Manual summary editing
+    if (request.method === 'POST' && url.pathname === '/admin/dashboard/update-case-summary') {
+      if (!isAuthenticated(request, env)) return new Response('Unauthorized', { status: 401 });
+      try {
+        const body = await request.json() as { pdf_filename: string; source?: string; summary: string } | null;
+        if (!body || !body.pdf_filename || body.summary === undefined) {
+          return jsonResponse({ error: 'Missing required fields: pdf_filename, summary' }, 400);
+        }
+        await updateCaseSummary(env.DB, body.pdf_filename, body.summary, body.source || 'ERA');
+        return jsonResponse({ success: true });
+      } catch (err) {
+        return jsonResponse({ error: String(err) }, 500);
+      }
+    }
+
+    // GET /admin/dashboard/search-cases — Admin search
+    if (request.method === 'GET' && url.pathname === '/admin/dashboard/search-cases') {
+      if (!isAuthenticated(request, env)) return new Response('Unauthorized', { status: 401 });
+      const q = url.searchParams.get('q') || '';
+      const field = url.searchParams.get('field') || '';
+      const limit = parseInt(url.searchParams.get('limit') ?? '20', 10);
+      if (!q.trim()) return jsonResponse({ results: [], count: 0 });
+      const results = await searchCases(env.DB, q.trim(), field || undefined, Math.min(limit, 100));
+      return jsonResponse({ results, count: results.length });
+    }
+
     // ══════════════════════════════════════════════════════════════════════════
     // ADMIN API ROUTES (Bearer token required)
     // ══════════════════════════════════════════════════════════════════════════
@@ -1987,7 +2014,7 @@ Rules:
     // POST /run — manual trigger (returns 202 immediately, processes in background)
     if (request.method === 'POST' && url.pathname === '/run') {
       const force = url.searchParams.get('force') === 'true';
-      const limit = parseInt(url.searchParams.get('limit') ?? '3', 10);
+      const limit = parseInt(url.searchParams.get('limit') ?? '10', 10);
       ctx.waitUntil(runDigest(env, force, Math.min(limit, 50)));
       return jsonResponse({ message: `Pipeline started (limit=${limit}). Check /admin/seen-cases in ~2 minutes.` }, 202);
     }
