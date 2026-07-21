@@ -309,6 +309,7 @@ export function getDashboardHtml(status: {
       <button class="tab-btn" type="button" onclick="switchTab(event, 'prompts')">Prompts</button>
       <button class="tab-btn" type="button" onclick="switchTab(event, 'rescan')">Rescan</button>
       <button class="tab-btn" type="button" onclick="switchTab(event, 'scraper')">📡 ERA Scraper</button>
+      <button class="tab-btn" type="button" onclick="switchTab(event, 'search')">🔍 Search</button>
       <button class="tab-btn" type="button" onclick="switchTab(event, 'diagnostics')">🔧 Diagnostics & Errors</button>
     </div>
 
@@ -783,6 +784,43 @@ export function getDashboardHtml(status: {
         <div id="era-upload-status" class="upload-status" style="margin-top:12px;"></div>
       </div>
     </div>
+
+    <div id="search" class="tab-content">
+      <div class="card">
+        <div class="card-title">🔍 Search Cases</div>
+        <div class="form-group" style="display:flex;gap:12px;align-items:flex-end;">
+          <div style="flex:1;">
+            <label>Search</label>
+            <input type="text" id="search-input" placeholder="Search query..." style="width:100%;">
+          </div>
+          <div style="flex:0 0 160px;">
+            <label>Field</label>
+            <select id="search-field" style="width:100%;">
+              <option value="">All fields</option>
+              <option value="title">Title</option>
+              <option value="member">Member</option>
+              <option value="category">Category</option>
+            </select>
+          </div>
+          <button class="button" onclick="searchCases()" id="search-btn">Search</button>
+        </div>
+        <div id="search-results" style="margin-top:16px;"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Edit Summary Modal -->
+  <div id="edit-summary-modal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:1000;align-items:center;justify-content:center;">
+    <div style="background:#fff;border-radius:8px;max-width:700px;width:90%;max-height:80vh;overflow-y:auto;padding:24px;">
+      <h3 style="margin:0 0 12px 0;">Edit Summary</h3>
+      <p style="font-size:13px;color:#666;margin:0 0 12px 0;">PDF: <span id="edit-pdf-filename"></span></p>
+      <textarea id="edit-summary-textarea" style="width:100%;min-height:200px;padding:8px;border:1px solid #ccc;border-radius:4px;font-size:13px;font-family:monospace;box-sizing:border-box;"></textarea>
+      <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px;">
+        <button class="button" onclick="closeEditModal()" style="background:#888;">Cancel</button>
+        <button class="button" onclick="saveEditSummary()" id="save-summary-btn">Save</button>
+      </div>
+      <div id="edit-summary-status" style="margin-top:8px;font-size:13px;"></div>
+    </div>
   </div>
 
   <script>
@@ -798,6 +836,7 @@ export function getDashboardHtml(status: {
       // Auto-load content when specific tabs are opened
       if (tabName === 'diagnostics') { loadErrors(); }
       if (tabName === 'scraper') loadScraperStats();
+      if (tabName === 'search') { setTimeout(() => { const inp = document.getElementById('search-input'); if (inp) inp.focus(); }, 100); }
       if (tabName === 'digest') { loadDigestConfig(); loadDigestPreview(); }
       if (tabName === 'prompts') loadPrompts();
     }
@@ -1019,14 +1058,18 @@ export function getDashboardHtml(status: {
         }
         let html = '';
         let unseenCount = 0;
+        window._editData = [];
         for (const c of cases.slice(0, 10)) {
           // Extract ERA ID from case_url
           const urlParts = (c.case_url || '').split('/');
           const lastSeg = urlParts[urlParts.length - 1];
           const eraId = /^\d+$/.test(lastSeg) ? lastSeg : (c.case_id || '—');
+          const editIdx = window._editData.length;
+          window._editData.push({ pdf: c.pdf_filename, source: c.source || 'ERA', summary: c.summary || '' });
           html += '<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 10px;background:white;border:1px solid #e0e0e0;border-radius:4px;margin-bottom:6px;">';
           html += '<span style="font-size:13px;flex:1;">' + esc(c.title || '—') + '</span>';
           html += '<span style="font-size:11px;color:#888;margin-left:8px;white-space:nowrap;">ID ' + eraId + '</span>';
+          html += '<button class="button" style="padding:4px 10px;font-size:11px;margin-left:8px;" onclick="openEditModal(' + editIdx + ')">Edit</button>';
           html += '</div>';
           unseenCount++;
         }
@@ -1668,6 +1711,86 @@ export function getDashboardHtml(status: {
         .replace(/</g, '&lt;')
         .replace(/>/g, '&gt;')
         .replace(/"/g, '&quot;');
+    }
+
+    // ─── Search tab ──────────────────────────────────────────────────────────
+    async function searchCases() {
+      const q = document.getElementById('search-input').value.trim();
+      const field = document.getElementById('search-field').value;
+      const resultsDiv = document.getElementById('search-results');
+      if (!q) { resultsDiv.innerHTML = '<p style="color:#999;">Enter a search query.</p>'; return; }
+      resultsDiv.innerHTML = '<p style="color:#999;">Searching...</p>';
+      try {
+        const params = new URLSearchParams({ q, field, limit: '20' });
+        const resp = await fetch('/admin/dashboard/search-cases?' + params.toString(), { credentials: 'same-origin' });
+        if (!resp.ok) throw new Error('HTTP ' + resp.status);
+        const data = await resp.json();
+        const results = data.results || [];
+        if (results.length === 0) {
+          resultsDiv.innerHTML = '<p style="color:#999;">No results found.</p>';
+          return;
+        }
+        let html = '<p style="font-size:13px;color:#666;margin-bottom:8px;">Found ' + data.count + ' result(s)</p>';
+        for (const r of results) {
+          const summary = r.summary ? (r.summary.length > 200 ? r.summary.slice(0, 200) + '...' : r.summary) : '—';
+          html += '<div style="padding:10px;background:white;border:1px solid #e0e0e0;border-radius:4px;margin-bottom:6px;">';
+          html += '<div style="font-size:14px;font-weight:600;">' + esc(r.title || '—') + '</div>';
+          html += '<div style="font-size:12px;color:#555;margin-top:4px;">' + esc(summary) + '</div>';
+          html += '<div style="font-size:11px;color:#999;margin-top:4px;">' + (r.processed_at || '') + '</div>';
+          html += '</div>';
+        }
+        resultsDiv.innerHTML = html;
+      } catch (err) {
+        resultsDiv.innerHTML = '<div class="alert alert-error" style="font-size:13px;">❌ ' + esc(err.message) + '</div>';
+      }
+    }
+
+    // ─── Edit Summary Modal ──────────────────────────────────────────────────
+    let _currentEditIndex = -1;
+
+    function openEditModal(idx) {
+      _currentEditIndex = idx;
+      const data = window._editData[idx];
+      if (!data) return;
+      document.getElementById('edit-pdf-filename').textContent = esc(data.pdf);
+      document.getElementById('edit-summary-textarea').value = data.summary;
+      document.getElementById('edit-summary-status').textContent = '';
+      document.getElementById('edit-summary-modal').style.display = 'flex';
+    }
+
+    function closeEditModal() {
+      document.getElementById('edit-summary-modal').style.display = 'none';
+    }
+
+    async function saveEditSummary() {
+      const idx = _currentEditIndex;
+      const data = window._editData[idx];
+      if (!data) return;
+      const summary = document.getElementById('edit-summary-textarea').value;
+      const btn = document.getElementById('save-summary-btn');
+      const status = document.getElementById('edit-summary-status');
+      btn.disabled = true; btn.textContent = 'Saving...';
+      status.textContent = '';
+      try {
+        const resp = await fetch('/admin/dashboard/update-case-summary', {
+          method: 'POST', credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ pdf_filename: data.pdf, source: data.source, summary }),
+        });
+        const d = await resp.json();
+        if (d.success) {
+          status.textContent = '✅ Saved';
+          status.style.color = '#060';
+          window._editData[idx].summary = summary;
+        } else {
+          status.textContent = '❌ ' + (d.error || 'Error');
+          status.style.color = '#c00';
+        }
+      } catch (err) {
+        status.textContent = '❌ ' + err.message;
+        status.style.color = '#c00';
+      }
+      btn.disabled = false; btn.textContent = 'Save';
     }
   </script>
 </body>
