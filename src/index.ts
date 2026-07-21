@@ -1892,11 +1892,13 @@ Rules:
             title: latestCase.title,
             pdf_filename: latestCase.pdf_filename,
             era_id: latestCase.case_url?.match(/\/view\/(\d+)/)?.[1] || null,
+            nzera_number: latestCase.pdf_filename?.match(/NZERA[-\s]?(\d+)/i)?.[1] || null,
           } : null,
           oldest: oldestCase ? {
             title: oldestCase.title,
             pdf_filename: oldestCase.pdf_filename,
             era_id: oldestCase.case_url?.match(/\/view\/(\d+)/)?.[1] || null,
+            nzera_number: oldestCase.pdf_filename?.match(/NZERA[-\s]?(\d+)/i)?.[1] || null,
           } : null,
           last_era_id: lastIdRaw ? parseInt(lastIdRaw, 10) : null,
           total_cases: stats.total,
@@ -2695,6 +2697,8 @@ function toTitleCaseSimple(s: string): string {
       if (particles.has(lower)) return lower;
       if (/^[A-Z]{2,6}$/.test(word)) return word;
       if (/^[A-Z]{2,}[a-z]/.test(word)) return word;
+      // Uppercase short words (2-4 chars) that aren't particles — likely acronyms like FEC, OAS, TVI
+      if (/^[A-Za-z]{2,4}$/.test(word) && !particles.has(lower)) return word.toUpperCase();
       return lower.charAt(0).toUpperCase() + lower.slice(1);
     })
     .join(' ')
