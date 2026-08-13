@@ -1023,7 +1023,7 @@ export function awardsPage(rows: CaseAwardWithCase[], pageMap?: Map<string, numb
   <td style="text-align:center;">${reinstateIcon}</td>
   <td style="text-align:center;">${empStatusIcon}</td>
   <td style="${outcomeColor[outcome] ?? ''}">${outcomeLabel[outcome] ?? '—'}</td>
-  <td style="text-align:center;white-space:nowrap;font-size:11px;">${allLinks}</td>
+  <td style="text-align:center;font-size:11px;">${allLinks}</td>
 </tr>`;
   }).join('\n');
 
@@ -1042,7 +1042,7 @@ export function awardsPage(rows: CaseAwardWithCase[], pageMap?: Map<string, numb
   .awards-stat-label { font-size:12px; color:${COLORS.muted}; }
   .awards-section { background:${COLORS.white}; border:1px solid ${COLORS.border}; border-radius:10px; padding:24px; margin-bottom:24px; }
   .awards-section h2 { font-size:16px; font-weight:700; color:${COLORS.navy}; margin-bottom:16px; }
-  .awards-table { width:100%; border-collapse:collapse; font-size:13px; white-space:nowrap; }
+  .awards-table { width:100%; border-collapse:collapse; font-size:13px; }
   .awards-table th { text-align:left; padding:8px 10px; font-size:11px; font-weight:600; text-transform:uppercase;
     letter-spacing:0.4px; color:${COLORS.muted}; border-bottom:2px solid ${COLORS.border}; background:${COLORS.bg}; }
   .awards-table th.right { text-align:right; }

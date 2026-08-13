@@ -527,6 +527,8 @@ export async function getCaseAwardRows(
       WHERE ca.source = ?
         AND sc.summary NOT LIKE '[COSTS ONLY]%'
         AND sc.summary NOT LIKE '[CONSENT]%'
+        AND sc.summary NOT LIKE '[ENFORCEMENT]%'
+        AND sc.summary NOT LIKE '[LABOUR INSPECTOR]%'
       ORDER BY ca.pdf_filename DESC
     `)
     .bind(source)
@@ -552,7 +554,7 @@ export async function getVisibleCaseOrder(
   db: D1Database
 ): Promise<Array<{ pdf_filename: string }>> {
   const result = await db
-    .prepare(`SELECT pdf_filename FROM seen_cases WHERE source = 'ERA' AND (summary IS NULL OR (summary NOT LIKE '[COSTS ONLY]%' AND summary NOT LIKE '[CONSENT]%')) ORDER BY processed_at DESC`)
+    .prepare(`SELECT pdf_filename FROM seen_cases WHERE source = 'ERA' AND (summary IS NULL OR (summary NOT LIKE '[COSTS ONLY]%' AND summary NOT LIKE '[CONSENT]%' AND summary NOT LIKE '[ENFORCEMENT]%' AND summary NOT LIKE '[LABOUR INSPECTOR]%')) ORDER BY processed_at DESC`)
     .all<{ pdf_filename: string }>();
   return result.results;
 }
