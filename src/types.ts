@@ -6,13 +6,14 @@
 
 /** A case as scraped from the ERA recent determinations page */
 export interface CaseListing {
-  caseId: string;        // e.g. "21178"
+  caseId: string;        // e.g. "21178" (or NZERA citation from detail scrape)
   title: string;         // e.g. "Robertson v Acme Ltd"
   caseUrl: string;       // e.g. "https://determinations.era.govt.nz/determination/view/21178"
   pdfUrl: string | null; // PDF download URL
   member: string | null; // Adjudicating member name
   datePublished: string | null; // e.g. "14 Apr 2026"
   category: string | null;      // e.g. "Unjustified dismissal"
+  probeId?: number;      // Transient: numeric ERA view ID this case was probed at (marker logic)
 }
 
 /** A case that has been processed (summarised and stored) */

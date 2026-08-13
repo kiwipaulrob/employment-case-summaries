@@ -1418,9 +1418,13 @@ Rules:
           );
           probeCount += batchIds.length;
           let batchHits = 0;
-          for (const detail of batchResults) {
-            if (detail) { allCases.push(detail); batchHits++; }
-          }
+          batchIds.forEach((probeId, idx) => {
+            const detail = batchResults[idx];
+            if (detail) {
+              allCases.push({ ...detail, probeId });
+              batchHits++;
+            }
+          });
           consecutiveMisses = batchHits === 0 ? consecutiveMisses + 1 : 0;
         }
 
@@ -1476,13 +1480,12 @@ Rules:
         const blocked: number[] = [];
         for (const c of allCases) {
           if (newCaseIds.has(String(c.caseId)) && !processedCaseIds.has(String(c.caseId))) {
-            const idNum = Number(c.caseId);
-            if (!isNaN(idNum)) blocked.push(idNum);
+            if (typeof c.probeId === 'number') blocked.push(c.probeId);
           }
         }
         let newLastId: number;
         if (blocked.length === 0) {
-          const resolved = allCases.map(c => Number(c.caseId)).filter(n => !isNaN(n));
+          const resolved = allCases.map(c => c.probeId).filter((n): n is number => typeof n === 'number');
           newLastId = resolved.length > 0 ? Math.max(...resolved) : startId - 1;
         } else {
           newLastId = Math.min(...blocked) - 1;
@@ -2486,12 +2489,14 @@ async function runDigest(env: Env, force = false, limit = 3): Promise<RunResult>
       probed += batchIds.length;
       // Add successes, stop early on 3 consecutive 404s
       let batchHits = 0;
-      for (const detail of batchResults) {
+      batchIds.forEach((probeId, idx) => {
+        const detail = batchResults[idx];
         if (detail) {
           batchHits++;
           consecutiveMisses = 0;
           allCases.push({
             caseId: detail.caseId,
+            probeId,
             title: detail.title,
             caseUrl: detail.caseUrl,
             pdfUrl: detail.pdfUrl,
@@ -2502,7 +2507,7 @@ async function runDigest(env: Env, force = false, limit = 3): Promise<RunResult>
         } else {
           consecutiveMisses++;
         }
-      }
+      });
 
       // If every ID in this batch missed, increment the counter
       if (batchHits === 0) consecutiveMisses += probeBatchSize;
@@ -2526,7 +2531,7 @@ async function runDigest(env: Env, force = false, limit = 3): Promise<RunResult>
     if (newCases.length === 0) {
       // Everything probed was already seen — advance the marker so the next run
       // probes forward instead of re-probing the same seen block forever.
-      const resolvedIds = allCases.map(c => Number(c.caseId)).filter(n => !isNaN(n));
+      const resolvedIds = allCases.map(c => c.probeId).filter((n): n is number => typeof n === 'number');
       if (resolvedIds.length > 0) {
         await setConfig(env.DB, 'last_era_id', String(Math.max(...resolvedIds)));
       }
@@ -2664,11 +2669,10 @@ async function runDigest(env: Env, force = false, limit = 3): Promise<RunResult>
     const blockedIds: number[] = [];
     for (const c of allNewCases) {
       if (!processedIds.has(String(c.caseId))) {
-        const idNum = Number(c.caseId);
-        if (!isNaN(idNum)) blockedIds.push(idNum);
+        if (typeof c.probeId === 'number') blockedIds.push(c.probeId);
       }
     }
-    const resolvedIds = allCases.map(c => Number(c.caseId)).filter(n => !isNaN(n));
+    const resolvedIds = allCases.map(c => c.probeId).filter((n): n is number => typeof n === 'number');
     const highestResolved = resolvedIds.length > 0 ? Math.max(...resolvedIds) : probeStart - 1;
     const newLastId = blockedIds.length > 0 ? Math.min(...blockedIds) - 1 : highestResolved;
     await setConfig(env.DB, 'last_era_id', String(Math.max(newLastId, probeStart - 1)));
