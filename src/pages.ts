@@ -985,9 +985,9 @@ export function awardsPage(rows: CaseAwardWithCase[], pageMap?: Map<string, numb
     const contribPct = r.contribution_applied === 1 && r.contribution_reduction
       ? escapeHtml(r.contribution_reduction) : '—';
     // Case detail link (determination view page)
-    // Extract ERA ID for summary link
+    // Extract ERA ID for summary link (mirror homePage fallback: view ID, else citation digits)
     const eraIdMatch = r.case_url?.match(/\/view\/(\d+)/);
-    const eraId = eraIdMatch?.[1] || null;
+    const eraId = eraIdMatch?.[1] || r.pdf_filename?.replace(/\.pdf$/i, '').match(/\d+$/)?.[0] || null;
     const summaryLink = eraId
       ? (() => {
           const page = pageMap?.get(r.pdf_filename);
