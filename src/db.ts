@@ -636,8 +636,8 @@ export function buildFtsQuery(rawQuery: string, field?: string): string {
 
 /** FTS column index for snippet() — must match the CREATE VIRTUAL TABLE order. */
 const FTS_COLUMN_INDEX: Record<string, number> = {
-  title: 1, member: 2, category: 3, summary: 4,
-  legal_issues: 5, keywords: 6, parties: 7, dates: 8,
+  title: 2, member: 3, category: 4, summary: 5,
+  legal_issues: 6, keywords: 7, parties: 8, dates: 9,
 };
 
 /**
@@ -660,10 +660,10 @@ export async function searchCases(
   const hasFtsIndex = await ftsIndexExists(db);
   if (hasFtsIndex && ftsQuery) {
     try {
-      // snippet() column: use the searched field's column if scoped, else summary (4)
+      // snippet() column: use the searched field's column if scoped, else summary (5)
       // Sentinels \x01/\x02 are used instead of <mark> tags so the client can
       // HTML-escape the surrounding text before converting them (XSS-safe).
-      const snippetCol = field && FTS_COLUMN_INDEX[field] !== undefined ? FTS_COLUMN_INDEX[field] : 4;
+      const snippetCol = field && FTS_COLUMN_INDEX[field] !== undefined ? FTS_COLUMN_INDEX[field] : 5;
       const sql = `
         SELECT sc.*, snippet(seen_cases_fts, ${snippetCol}, char(1), char(2), '…', 12) AS __snippet
         FROM seen_cases_fts
@@ -719,11 +719,15 @@ export async function searchCases(
   return { results: result.results, count: countRes?.n ?? result.results.length, usedFts: false };
 }
 
-/** Whether the FTS5 search index (migration 0020) exists in this database. */
+/**
+ * Whether the FTS5 search index (migration 0020) exists in this database.
+ * Requires both the table AND the `source` column (schema v2 — the initial
+ * deploy lacked source, which broke the seen_cases JOIN; rebuilt 13 Aug 2026).
+ */
 export async function ftsIndexExists(db: D1Database): Promise<boolean> {
   try {
     const res = await db
-      .prepare(`SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'seen_cases_fts'`)
+      .prepare(`SELECT name FROM pragma_table_info('seen_cases_fts') WHERE name = 'source'`)
       .first<{ name: string }>();
     return !!res;
   } catch {
@@ -740,6 +744,7 @@ export async function createFtsIndex(db: D1Database): Promise<{ created: boolean
   const statements: string[] = [
     `CREATE VIRTUAL TABLE IF NOT EXISTS seen_cases_fts USING fts5(
   pdf_filename UNINDEXED,
+  source UNINDEXED,
   title,
   member,
   category,
@@ -752,9 +757,9 @@ export async function createFtsIndex(db: D1Database): Promise<{ created: boolean
 )`,
 
     `CREATE TRIGGER IF NOT EXISTS seen_cases_fts_ai AFTER INSERT ON seen_cases BEGIN
-  INSERT INTO seen_cases_fts(pdf_filename, title, member, category, summary,
+  INSERT INTO seen_cases_fts(pdf_filename, source, title, member, category, summary,
                              legal_issues, keywords, parties, dates)
-  VALUES (NEW.pdf_filename, NEW.title, NEW.member, NEW.category, NEW.summary,
+  VALUES (NEW.pdf_filename, NEW.source, NEW.title, NEW.member, NEW.category, NEW.summary,
     (SELECT legal_issues FROM case_awards WHERE pdf_filename = NEW.pdf_filename AND source = NEW.source),
     (SELECT keywords FROM case_awards WHERE pdf_filename = NEW.pdf_filename AND source = NEW.source),
     (SELECT TRIM(COALESCE(party_applicant,'') || ' ' || COALESCE(party_respondent,'')) FROM case_awards WHERE pdf_filename = NEW.pdf_filename AND source = NEW.source),
@@ -762,10 +767,10 @@ export async function createFtsIndex(db: D1Database): Promise<{ created: boolean
 END`,
 
     `CREATE TRIGGER IF NOT EXISTS seen_cases_fts_au AFTER UPDATE ON seen_cases BEGIN
-  DELETE FROM seen_cases_fts WHERE pdf_filename = OLD.pdf_filename;
-  INSERT INTO seen_cases_fts(pdf_filename, title, member, category, summary,
+  DELETE FROM seen_cases_fts WHERE pdf_filename = OLD.pdf_filename AND source = OLD.source;
+  INSERT INTO seen_cases_fts(pdf_filename, source, title, member, category, summary,
                              legal_issues, keywords, parties, dates)
-  VALUES (NEW.pdf_filename, NEW.title, NEW.member, NEW.category, NEW.summary,
+  VALUES (NEW.pdf_filename, NEW.source, NEW.title, NEW.member, NEW.category, NEW.summary,
     (SELECT legal_issues FROM case_awards WHERE pdf_filename = NEW.pdf_filename AND source = NEW.source),
     (SELECT keywords FROM case_awards WHERE pdf_filename = NEW.pdf_filename AND source = NEW.source),
     (SELECT TRIM(COALESCE(party_applicant,'') || ' ' || COALESCE(party_respondent,'')) FROM case_awards WHERE pdf_filename = NEW.pdf_filename AND source = NEW.source),
@@ -773,14 +778,14 @@ END`,
 END`,
 
     `CREATE TRIGGER IF NOT EXISTS seen_cases_fts_ad AFTER DELETE ON seen_cases BEGIN
-  DELETE FROM seen_cases_fts WHERE pdf_filename = OLD.pdf_filename;
+  DELETE FROM seen_cases_fts WHERE pdf_filename = OLD.pdf_filename AND source = OLD.source;
 END`,
 
     `CREATE TRIGGER IF NOT EXISTS seen_cases_fts_ca_ai AFTER INSERT ON case_awards BEGIN
-  DELETE FROM seen_cases_fts WHERE pdf_filename = NEW.pdf_filename;
-  INSERT INTO seen_cases_fts(pdf_filename, title, member, category, summary,
+  DELETE FROM seen_cases_fts WHERE pdf_filename = NEW.pdf_filename AND source = NEW.source;
+  INSERT INTO seen_cases_fts(pdf_filename, source, title, member, category, summary,
                              legal_issues, keywords, parties, dates)
-  SELECT sc.pdf_filename, sc.title, sc.member, sc.category, sc.summary,
+  SELECT sc.pdf_filename, sc.source, sc.title, sc.member, sc.category, sc.summary,
          NEW.legal_issues, NEW.keywords,
          TRIM(COALESCE(NEW.party_applicant,'') || ' ' || COALESCE(NEW.party_respondent,'')),
          COALESCE(NEW.decision_date,'')
@@ -788,10 +793,10 @@ END`,
 END`,
 
     `CREATE TRIGGER IF NOT EXISTS seen_cases_fts_ca_au AFTER UPDATE ON case_awards BEGIN
-  DELETE FROM seen_cases_fts WHERE pdf_filename = NEW.pdf_filename;
-  INSERT INTO seen_cases_fts(pdf_filename, title, member, category, summary,
+  DELETE FROM seen_cases_fts WHERE pdf_filename = NEW.pdf_filename AND source = NEW.source;
+  INSERT INTO seen_cases_fts(pdf_filename, source, title, member, category, summary,
                              legal_issues, keywords, parties, dates)
-  SELECT sc.pdf_filename, sc.title, sc.member, sc.category, sc.summary,
+  SELECT sc.pdf_filename, sc.source, sc.title, sc.member, sc.category, sc.summary,
          NEW.legal_issues, NEW.keywords,
          TRIM(COALESCE(NEW.party_applicant,'') || ' ' || COALESCE(NEW.party_respondent,'')),
          COALESCE(NEW.decision_date,'')
@@ -799,19 +804,19 @@ END`,
 END`,
 
     `CREATE TRIGGER IF NOT EXISTS seen_cases_fts_ca_ad AFTER DELETE ON case_awards BEGIN
-  DELETE FROM seen_cases_fts WHERE pdf_filename = OLD.pdf_filename;
-  INSERT INTO seen_cases_fts(pdf_filename, title, member, category, summary,
+  DELETE FROM seen_cases_fts WHERE pdf_filename = OLD.pdf_filename AND source = OLD.source;
+  INSERT INTO seen_cases_fts(pdf_filename, source, title, member, category, summary,
                              legal_issues, keywords, parties, dates)
-  SELECT sc.pdf_filename, sc.title, sc.member, sc.category, sc.summary,
+  SELECT sc.pdf_filename, sc.source, sc.title, sc.member, sc.category, sc.summary,
          NULL, NULL, NULL, NULL
   FROM seen_cases sc WHERE sc.pdf_filename = OLD.pdf_filename AND sc.source = OLD.source;
 END`,
 
     `DELETE FROM seen_cases_fts`,
 
-    `INSERT INTO seen_cases_fts(pdf_filename, title, member, category, summary,
+    `INSERT INTO seen_cases_fts(pdf_filename, source, title, member, category, summary,
                            legal_issues, keywords, parties, dates)
-SELECT sc.pdf_filename, sc.title, sc.member, sc.category, sc.summary,
+SELECT sc.pdf_filename, sc.source, sc.title, sc.member, sc.category, sc.summary,
        ca.legal_issues, ca.keywords,
        TRIM(COALESCE(ca.party_applicant,'') || ' ' || COALESCE(ca.party_respondent,'')),
        COALESCE(ca.decision_date,'')

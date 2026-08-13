@@ -2112,10 +2112,22 @@ Rules:
     // POST /admin/dashboard/search-migrate — create the FTS5 search index (migration 0020)
     // Runs the idempotent DDL through the Worker's own D1 binding. Needed because host
     // Cloudflare tokens are Workers:Edit-only and cannot execute D1 directly (7403).
+    // If the table exists without the `source` column (schema v1), it is dropped and
+    // rebuilt — CREATE VIRTUAL TABLE IF NOT EXISTS cannot alter an existing table.
     if (request.method === 'POST' && url.pathname === '/admin/dashboard/search-migrate') {
       if (!isAuthenticated(request, env)) return new Response('Unauthorized', { status: 401 });
       const already = await ftsIndexExists(env.DB);
       if (already) return jsonResponse({ success: true, message: 'FTS index already exists', created: false });
+      // Drop any stale/partial index (missing source column) before recreating
+      try {
+        await env.DB.prepare('DROP TABLE IF EXISTS seen_cases_fts').run();
+        await env.DB.prepare('DROP TRIGGER IF EXISTS seen_cases_fts_ai').run();
+        await env.DB.prepare('DROP TRIGGER IF EXISTS seen_cases_fts_au').run();
+        await env.DB.prepare('DROP TRIGGER IF EXISTS seen_cases_fts_ad').run();
+        await env.DB.prepare('DROP TRIGGER IF EXISTS seen_cases_fts_ca_ai').run();
+        await env.DB.prepare('DROP TRIGGER IF EXISTS seen_cases_fts_ca_au').run();
+        await env.DB.prepare('DROP TRIGGER IF EXISTS seen_cases_fts_ca_ad').run();
+      } catch { /* ignore — table may not exist */ }
       const out = await createFtsIndex(env.DB);
       if (out.created) {
         return jsonResponse({ success: true, message: 'FTS index created and backfilled', created: true });
