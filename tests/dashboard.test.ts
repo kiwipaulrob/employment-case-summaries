@@ -89,7 +89,6 @@ describe('dashboard HTML generation', () => {
       'scrapeDateRange',
       'uploadEraUrl',
       'handleEraPdfFiles',
-      'cancelPreview',
       'loadPrompts',
       'runDiag',
     ];

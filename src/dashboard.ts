@@ -902,7 +902,9 @@ export function getDashboardHtml(status: {
       });
     }
 
-    document.getElementById('ec-form').addEventListener('submit', async (e) => {
+    const ecForm = document.getElementById('ec-form');
+    if (ecForm) {
+      ecForm.addEventListener('submit', async (e) => {
       e.preventDefault();
       const fileInput = document.getElementById('pdf-input');
       const status = document.getElementById('upload-status');
@@ -978,37 +980,6 @@ export function getDashboardHtml(status: {
         }
       }
     });
-
-    document.getElementById('digest-form').addEventListener('submit', async (e) => {
-      e.preventDefault();
-      const limit = document.getElementById('digest-limit').value;
-      document.getElementById('send-limit').value = limit;
-      
-      const previewSection = document.getElementById('preview-section');
-      const previewLoading = document.getElementById('preview-loading');
-      const previewContent = document.getElementById('preview-content');
-      
-      previewSection.style.display = 'block';
-      previewLoading.style.display = 'block';
-      previewContent.innerHTML = '';
-
-      try {
-        const response = await fetch(\`/admin/preview-digest?limit=\${limit}\`, {
-          credentials: 'same-origin'
-        });
-        if (!response.ok) throw new Error('Failed to load preview');
-        
-        const html = await response.text();
-        previewContent.innerHTML = html;
-      } catch (err) {
-        previewContent.innerHTML = '<div class="alert alert-error">Error loading preview: ' + err.message + '</div>';
-      } finally {
-        previewLoading.style.display = 'none';
-      }
-    });
-
-    function cancelPreview() {
-      document.getElementById('preview-section').style.display = 'none';
     }
 
     // ═══ Digest Tab JS ═══════════════════════════════════════════════════════
@@ -1430,7 +1401,9 @@ export function getDashboardHtml(status: {
     }
 
     // Handle prompts form submission
-    document.getElementById('prompts-form').addEventListener('submit', async (e) => {
+    const promptsForm = document.getElementById('prompts-form');
+    if (promptsForm) {
+      promptsForm.addEventListener('submit', async (e) => {
       e.preventDefault();
       const statusEl = document.getElementById('prompts-status');
       statusEl.innerHTML = '⏳ Saving prompts...';
@@ -1457,6 +1430,7 @@ export function getDashboardHtml(status: {
         statusEl.innerHTML = '<strong>❌ Error:</strong> ' + err.message;
       }
     });
+    }
 
     // Handle rescan by specific ERA IDs
     async function rescanByIds() {
