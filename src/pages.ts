@@ -401,6 +401,7 @@ function shell(title: string, body: string, extraCss = ''): string {
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>${escapeHtml(title)} — ERA Digest</title>
+<script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer><\/script>
 <style>${BASE_CSS}${extraCss}</style>
 </head>
 <body>
@@ -449,7 +450,8 @@ export function homePage(
   cases: DbSeenCase[],
   error?: string,
   page = 1,
-  totalCount = 0
+  totalCount = 0,
+  turnstileSiteKey = ''
 ): string {
   // Cases are pre-filtered server-side; just render them all
 
@@ -547,6 +549,7 @@ ${paginationNav}` : '';
           <input type="email" id="email" name="email" value="${emailVal}" required autocomplete="email" placeholder="you@example.com">
           <div class="form-hint">One email per day, only when new cases are published. Unsubscribe any time.</div>
         </div>
+        ${turnstileSiteKey ? `<div class="cf-turnstile" data-sitekey="${escapeHtml(turnstileSiteKey)}" style="margin-bottom:1rem;"></div>` : ''}
         <button type="submit" class="btn-primary">Subscribe &rarr;</button>
       </form>
     </div>
@@ -555,7 +558,7 @@ ${paginationNav}` : '';
   </div>
 </div>`;
 
-  return shell('Subscribe', body);
+  return shell('NZ Employment Law Determinations', body);
 }
 
 // ─── Subscribed (check your email) page ──────────────────────────────────────

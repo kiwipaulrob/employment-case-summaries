@@ -5,7 +5,7 @@
  * stays clean and can easily be adapted to a different database.
  */
 
-import type { CaseListing, ProcessedCase, DbSubscriber, DbSeenCase } from './types';
+import type { CaseListing, ProcessedCase, DbSubscriber, DbSeenCase, ExtractedData } from './types';
 import { validateSummaryNotDoubleEncoded } from './utils';
 
 // ─── Seen cases ───────────────────────────────────────────────────────────────
@@ -240,10 +240,10 @@ export async function unsubscribeByToken(db: D1Database, token: string): Promise
   return (result.meta.changes ?? 0) > 0;
 }
 
-export async function deleteSubscriber(db: D1Database, email: string): Promise<boolean> {
+export async function deleteSubscriber(db: D1Database, id: number): Promise<boolean> {
   const result = await db
-    .prepare("DELETE FROM subscribers WHERE email = ?")
-    .bind(email)
+    .prepare("DELETE FROM subscribers WHERE id = ?")
+    .bind(id)
     .run();
   return (result.meta.changes ?? 0) > 0;
 }
@@ -396,14 +396,14 @@ export interface CaseAwardRow {
   weekly_wage: number | null;
   costs_awarded: number | null;
   costs_awarded_text: string | null;
-  reinstatement: boolean | null;
-  reinstatement_sought: boolean | null;
-  employee_status: boolean | null;
+  reinstatement: number | boolean | null;
+  reinstatement_sought: number | boolean | null;
+  employee_status: string | null;
   outcome: string | null;
   extraction_method: string | null;
   decision_date: string | null;
   employment_tenure: string | null;
-  contribution_applied: boolean | null;
+  contribution_applied: number | boolean | null;
   contribution_reduction: string | null;
   contribution_conduct: string | null;
   penalties: number | null;
@@ -451,6 +451,67 @@ export async function insertCaseAward(
     awardsData.contribution_reduction ?? null,
     awardsData.contribution_conduct ?? null,
     awardsData.penalties ?? null,
+  ).run();
+}
+
+// ─── Multi-block extraction (Jul 2026) ────────────────────────────────────────
+// 30-field INSERT OR REPLACE covering awards + legal issues + parties + dates +
+// keywords. Used by backfill-awards v2 (extraction_method 'llm_backfill_v2').
+
+export async function upsertExtractedData(
+  db: D1Database,
+  pdfFilename: string,
+  source: string,
+  data: ExtractedData,
+  extractionMethod: string
+): Promise<void> {
+  await db.prepare(
+    `INSERT OR REPLACE INTO case_awards
+     (pdf_filename, source,
+      hhd_amount, lost_wages, lost_wages_weeks, weekly_wage,
+      costs_awarded, costs_awarded_text, reinstatement, reinstatement_sought,
+      employee_status, outcome, extraction_method, decision_date, employment_tenure,
+      contribution_applied, contribution_reduction, contribution_conduct, penalties,
+      legal_issues, legal_issues_applicant_won, legal_issues_respondent_won,
+      party_applicant, party_respondent,
+      representative_applicant, representative_respondent,
+      employment_start, dismissal_date, grievance_raised,
+      keywords)
+     VALUES (?, ?,
+      ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+      ?, ?, ?, ?,
+      ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).bind(
+    pdfFilename,
+    source,
+    data.hhd_amount ?? null,
+    data.lost_wages ?? null,
+    data.lost_wages_weeks ?? null,
+    data.weekly_wage ?? null,
+    data.costs_awarded ?? null,
+    data.costs_awarded_text ?? null,
+    data.reinstatement ?? false,
+    data.reinstatement_sought ?? false,
+    data.employee_status ?? null,
+    data.outcome ?? null,
+    extractionMethod,
+    data.decision_date ?? null,
+    data.employment_tenure ?? null,
+    data.contribution_applied ?? false,
+    data.contribution_reduction ?? null,
+    data.contribution_conduct ?? null,
+    data.penalties ?? null,
+    data.legal_issues ?? null,
+    data.legal_issues_applicant_won ?? null,
+    data.legal_issues_respondent_won ?? null,
+    data.party_applicant ?? null,
+    data.party_respondent ?? null,
+    data.representative_applicant ?? null,
+    data.representative_respondent ?? null,
+    data.employment_start ?? null,
+    data.dismissal_date ?? null,
+    data.grievance_raised ?? null,
+    data.keywords ?? null
   ).run();
 }
 

@@ -40,7 +40,7 @@ import {
   getConfig, setConfig, addSubscriberPending, confirmSubscriber, unsubscribeByToken,
   deleteSubscriber, deleteStalePendingSubscribers, setProcessingLock, isProcessing,
   getSubscriberByToken, updatePreferences,
-  insertCaseAward, getCaseAwardRows, getCasesWithoutAwards,
+  insertCaseAward, upsertExtractedData, getCaseAwardRows, getCasesWithoutAwards,
   savePromptWithHistory, getPromptVersions, revertPromptToVersion,
   insertErrorLog, getRecentErrors, getVisibleCaseOrder,
   updateCaseSummary, searchCases,
@@ -181,7 +181,16 @@ export default {
         getRecentCasesPaged(env.DB, PAGE_SIZE, offset, false, false),
         getCaseCountPaged(env.DB, false, false),
       ]);
-      return htmlResponse(homePage(cases, undefined, page, totalCount));
+      return htmlResponse(homePage(cases, undefined, page, totalCount, env.TURNSTILE_SITE_KEY));
+    }
+
+    // GET /subscribe — Standalone subscribe page (same landing content + form)
+    if (request.method === 'GET' && url.pathname === '/subscribe') {
+      const [cases, totalCount] = await Promise.all([
+        getRecentCasesPaged(env.DB, 20, 0, false, false),
+        getCaseCountPaged(env.DB, false, false),
+      ]);
+      return htmlResponse(homePage(cases, undefined, 1, totalCount, env.TURNSTILE_SITE_KEY));
     }
 
     // GET /awards — Public awards & damages statistics page
@@ -216,6 +225,32 @@ export default {
         return new Response('Too many requests. Please try again later.', { status: 429 });
       }
       const formData = await request.formData();
+
+      // Turnstile verification (added 22 Jul 2026)
+      const turnstileToken = (formData.get('cf-turnstile-response') ?? '').toString().trim();
+      if (!turnstileToken) {
+        const [cases, totalCount] = await Promise.all([
+          getRecentCasesPaged(env.DB, 20, 0, false, false),
+          getCaseCountPaged(env.DB, false, false),
+        ]);
+        return htmlResponse(homePage(cases, 'Please complete the security check.', 1, totalCount, env.TURNSTILE_SITE_KEY));
+      }
+      const verifyResp = await fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify', {
+        method: 'POST',
+        body: new URLSearchParams({
+          secret: env.TURNSTILE_SECRET_KEY ?? '',
+          response: turnstileToken,
+        }),
+      });
+      const verifyData = await verifyResp.json() as { success?: boolean };
+      if (!verifyData.success) {
+        const [cases, totalCount] = await Promise.all([
+          getRecentCasesPaged(env.DB, 20, 0, false, false),
+          getCaseCountPaged(env.DB, false, false),
+        ]);
+        return htmlResponse(homePage(cases, 'Security check failed. Please try again.', 1, totalCount, env.TURNSTILE_SITE_KEY));
+      }
+
       const email = (formData.get('email') as string ?? '').trim().toLowerCase();
       const name = (formData.get('name') as string ?? '').trim() || null;
       const preferences = JSON.stringify({});
@@ -225,7 +260,7 @@ export default {
           getRecentCasesPaged(env.DB, 20, 0, false, false),
           getCaseCountPaged(env.DB, false, false),
         ]);
-        return htmlResponse(homePage(cases, 'Please enter a valid email address.', 1, totalCount));
+        return htmlResponse(homePage(cases, 'Please enter a valid email address.', 1, totalCount, env.TURNSTILE_SITE_KEY));
       }
 
       const { token, alreadyActive } = await addSubscriberPending(env.DB, email, name, preferences);
@@ -278,9 +313,9 @@ export default {
     if (request.method === 'GET' && url.pathname === '/confirm') {
       const token = url.searchParams.get('token') ?? '';
       if (!token) return htmlResponse(invalidTokenPage());
-      const sub = await confirmSubscriber(env.DB, token);
-      if (!sub) return htmlResponse(invalidTokenPage());
-      return htmlResponse(confirmedPage(sub.name ?? 'there'));
+      const ok = await confirmSubscriber(env.DB, token);
+      if (!ok) return htmlResponse(invalidTokenPage());
+      return htmlResponse(confirmedPage('there'));
     }
 
     // GET /unsubscribe?token=X — One-click unsubscribe
@@ -1188,8 +1223,7 @@ export default {
     // This is safe to call multiple times — it skips cases already extracted.
     // ──────────────────────────────────────────────────────────────────────────
     if (request.method === 'POST' && url.pathname === '/admin/dashboard/backfill-awards') {
-      const session = getAdminCookie(request);
-      if (session !== env.ADMIN_SECRET) {
+      if (!isAuthenticated(request, env)) {
         return new Response('Unauthorized', { status: 401 });
       }
       try {
@@ -1201,31 +1235,55 @@ export default {
           return jsonResponse({ success: true, processed: 0, failed: 0, message: 'All ERA cases already have awards data extracted.' });
         }
 
-        const EXTRACTION_PROMPT = `You are a data extractor. From the employment case summary below, extract remedy and award information.
+        const EXTRACTION_PROMPT = `You are a legal data extractor. From the employment case summary below, extract structured data in exactly this JSON format.
 
-Return ONLY a valid JSON object with these exact keys (no other text, no markdown fences):
+Return ONLY a raw JSON object (no markdown fences, no other text) with these exact keys:
+
 {
-  "hhd_amount": null or integer (NZD dollars for hurt/humiliation/distress award — NOT total compensation),
-  "lost_wages": null or integer (NZD dollars total for lost wages or wage compensation),
-  "weekly_wage": null or integer (NZD weekly wage if stated anywhere in the summary),
-  "lost_wages_weeks": null or number (weeks of salary the lost wages figure represents, if explicitly stated),
-  "costs_awarded": null or integer (NZD costs order if any),
+  "hhd_amount": null or integer (NZD for hurt/humiliation/distress),
+  "lost_wages": null or integer (NZD total lost wages),
+  "weekly_wage": null or integer (NZD weekly wage if stated),
+  "lost_wages_weeks": null or number (weeks represented if stated),
+  "costs_awarded": null or integer (NZD costs order),
   "reinstatement": false or true,
+  "reinstatement_sought": false or true,
+  "employee_status": null or "employee" or "contractor",
   "outcome": "applicant" or "respondent" or "mixed" or "none",
-  "decision_date": null or string (decision date in YYYY-MM-DD format if stated),
-  "employment_tenure": null or string (duration of employment if stated, e.g. "2.5 years" or "6 months"),
-  "contribution_applied": false or true (whether the Authority reduced any remedy due to contributory conduct),
-  "contribution_reduction": null or string (percentage reduction if stated, e.g. "25%", or calculated as "25% (calculated)"),
-  "contribution_conduct": null or string (brief description of the conduct justifying the reduction),
-  "penalties": null or integer (total statutory penalties ordered against the respondent in NZD)
+  "decision_date": null or YYYY-MM-DD,
+  "employment_tenure": null or string e.g. "2.5 years",
+  "contribution_applied": false or true,
+  "contribution_reduction": null or string e.g. "25%",
+  "contribution_conduct": null or string,
+  "penalties": null or integer (total NZD),
+
+  "legal_issues": null or semicolon-separated list of legal issues raised,
+  "legal_issues_applicant_won": null or subset list applicant succeeded on,
+  "legal_issues_respondent_won": null or subset list dismissed,
+
+  "party_applicant": null or name of applicant/employee,
+  "party_respondent": null or name of respondent/employer,
+  "representative_applicant": null or name of applicant's counsel,
+  "representative_respondent": null or name of respondent's counsel,
+
+  "employment_start": null or YYYY-MM-DD,
+  "dismissal_date": null or YYYY-MM-DD,
+  "grievance_raised": null or YYYY-MM-DD,
+
+  "keywords": null or semicolon-separated keywords
 }
 
 Rules:
-- Look in the REMEDY and OUTCOME sections
-- HHD = hurt, humiliation and distress (also called personal grievance compensation)
-- "outcome: applicant" means the employee/applicant succeeded; "respondent" means the employer succeeded
-- Use null (not 0) for amounts that are explicitly not awarded, nil, or not stated
-- Numbers must be plain integers — no $ signs, no commas
+- Look in the REMEDY and OUTCOME sections for remedy amounts
+- HHD = hurt, humiliation, distress (also called personal grievance compensation, injury to feelings, mental distress, or "global award for humiliation"). ANY dollar amount described as compensation for hurt/humiliation/distress/injury to feelings = hhd_amount
+- Lost wages = any reimbursement of lost wages, wage compensation, or back pay
+- weekly_wage = the claimant's stated weekly or hourly wage
+- Costs = costs awarded by the Authority (not solicitor-client costs)
+- penalties = total statutory penalties under s 133A or similar
+- If a quantum is said to be "to be calculated" or "leave to return", still extract the amount if stated elsewhere
+- outcome: applicant = employee succeeded; respondent = employer succeeded; mixed = partial success
+- Keywords: extract topics/industry from context — e.g. school principal, constructive dismissal, reinstatement
+- Use null (not 0) for amounts not awarded/stated
+- Numbers: plain integers, no $ signs, no commas. $40,000 = 40000
 - Return ONLY the raw JSON object`;
 
         let processed = 0;
@@ -1236,62 +1294,70 @@ Rules:
             const pdfFilename = c.pdf_filename;
             if (!pdfFilename || !c.summary) { failed++; continue; }
 
-            // Call Cloudflare AI for extraction
             const controller = new AbortController();
             const timeoutId = setTimeout(() => controller.abort(), 60000);
             let jsonText: string;
             try {
-              const extractionResponse = await (env.AI as any).run('anthropic/claude-sonnet-4.6', {
-                messages: [
-                  { role: 'system', content: EXTRACTION_PROMPT },
-                  { role: 'user', content: c.summary },
-                ],
-                max_tokens: 300,
+              const response = await (env.AI as any).run('anthropic/claude-sonnet-4.6', {
+                messages: [{ role: 'user', content: c.summary }],
+                system: EXTRACTION_PROMPT,
+                max_tokens: 1200,
               }, {
                 gateway: { id: 'default' },
                 signal: controller.signal,
               });
               clearTimeout(timeoutId);
-              const extractionBody = extractionResponse?.result?.content?.[0]?.text ?? extractionResponse?.content?.[0]?.text;
-              if (!extractionBody) throw new Error(extractionResponse?.error?.message ?? 'No response from Cloudflare AI');
-              jsonText = extractionBody.trim();
+              const body = response?.result?.content?.[0]?.text ?? response?.content?.[0]?.text;
+              if (!body) throw new Error(response?.error?.message ?? 'No response from Cloudflare AI');
+              jsonText = body.trim();
             } finally {
               clearTimeout(timeoutId);
             }
 
-            // Robustly extract JSON from response (handles trailing text or code fences)
             const jsonMatch = jsonText.match(/\{[\s\S]*\}/);
-            if (!jsonMatch) throw new Error(`No JSON in response: ${jsonText.slice(0, 100)}`);
-            const data = JSON.parse(jsonMatch[0]) as {
-              hhd_amount?: number | null;
-              lost_wages?: number | null;
-              weekly_wage?: number | null;
-              lost_wages_weeks?: number | null;
-              costs_awarded?: number | null;
-              reinstatement?: boolean;
-              outcome?: string | null;
-            };
+            if (!jsonMatch) throw new Error(`No JSON found in response: ${jsonText.slice(0, 100)}`);
+            const data = JSON.parse(jsonMatch[0]) as Record<string, any>;
 
-            // Derive weeks if not stated but both salary figures available
             let weeksCalc = (typeof data.lost_wages_weeks === 'number') ? data.lost_wages_weeks : null;
             if (!weeksCalc && data.lost_wages && data.weekly_wage && data.weekly_wage > 0) {
               weeksCalc = Math.round((data.lost_wages / data.weekly_wage) * 10) / 10;
             }
 
-            await insertCaseAward(env.DB, pdfFilename, 'ERA', {
-              hhd_amount: typeof data.hhd_amount === 'number' ? data.hhd_amount : null,
-              lost_wages: typeof data.lost_wages === 'number' ? data.lost_wages : null,
-              weekly_wage: typeof data.weekly_wage === 'number' ? data.weekly_wage : null,
+            await upsertExtractedData(env.DB, pdfFilename, 'ERA', {
+              hhd_amount: data.hhd_amount ?? null,
+              lost_wages: data.lost_wages ?? null,
+              weekly_wage: data.weekly_wage ?? null,
               lost_wages_weeks: weeksCalc,
-              costs_awarded: typeof data.costs_awarded === 'number' ? data.costs_awarded : null,
+              costs_awarded: data.costs_awarded ?? null,
+              costs_awarded_text: null,
               reinstatement: data.reinstatement === true,
-              outcome: (data.outcome as string | null) ?? null,
-            }, 'llm_backfill');
+              reinstatement_sought: data.reinstatement_sought === true,
+              employee_status: data.employee_status ?? null,
+              outcome: data.outcome ?? null,
+              extraction_method: 'llm_backfill_v2',
+              decision_date: data.decision_date ?? null,
+              employment_tenure: data.employment_tenure ?? null,
+              contribution_applied: data.contribution_applied === true,
+              contribution_reduction: data.contribution_reduction ?? null,
+              contribution_conduct: data.contribution_conduct ?? null,
+              penalties: data.penalties ?? null,
+              legal_issues: data.legal_issues ?? null,
+              legal_issues_applicant_won: data.legal_issues_applicant_won ?? null,
+              legal_issues_respondent_won: data.legal_issues_respondent_won ?? null,
+              party_applicant: data.party_applicant ?? null,
+              party_respondent: data.party_respondent ?? null,
+              representative_applicant: data.representative_applicant ?? null,
+              representative_respondent: data.representative_respondent ?? null,
+              employment_start: data.employment_start ?? null,
+              dismissal_date: data.dismissal_date ?? null,
+              grievance_raised: data.grievance_raised ?? null,
+              keywords: data.keywords ?? null,
+            }, 'llm_backfill_v2');
 
             processed++;
-            console.log(`Awards backfill: extracted data for ${pdfFilename}`);
+            console.log(`Data backfill: extracted all blocks for ${pdfFilename}`);
           } catch (err) {
-            console.error(`Awards backfill: failed for ${c.pdf_filename}: ${err}`);
+            console.error(`Data backfill: failed for ${c.pdf_filename}: ${err}`);
             failed++;
           }
         }
@@ -1302,11 +1368,11 @@ Rules:
           processed,
           failed,
           message: processed > 0
-            ? `Extracted awards data for ${processed} case(s). ${failed > 0 ? `${failed} failed.` : ''}`
+            ? `Extracted data for ${processed} case(s). ${failed > 0 ? `${failed} failed.` : ''}`
             : `No cases processed. ${failed > 0 ? `${failed} failed.` : ''}`,
         });
       } catch (err) {
-        console.error(`Awards backfill error: ${err}`);
+        console.error(`Data backfill error: ${err}`);
         return jsonResponse({ success: false, error: String(err) }, 500);
       }
     }
@@ -1367,13 +1433,20 @@ Rules:
         let processed = 0;
         let failed = 0;
         let lastError: string | null = null;
+        const processedCaseIds = new Set<string>();
 
         for (const c of batch) {
           try {
-            if (!c.pdfUrl) { failed++; continue; }
+            if (!c.pdfUrl) {
+              await insertErrorLog(env.DB, 'warn', 'scrape_id_range', `No PDF URL for ERA ID ${c.caseId}`, undefined, String(c.caseId)).catch(() => {});
+              failed++; continue;
+            }
             const pdfContent = await getPdfContent(c.pdfUrl);
             const summaryResult = await summariseCase(c, pdfContent, env, env.DB);
-            if (!summaryResult.success) { failed++; continue; }
+            if (!summaryResult.success) {
+              await insertErrorLog(env.DB, 'error', 'scrape_id_range', `Summarisation failed for ERA ID ${c.caseId}: ${summaryResult.error ?? 'unknown error'}`, undefined, String(c.caseId)).catch(() => {});
+              failed++; continue;
+            }
             const { awardsData, strippedSummary } = parseAwardsBlock(summaryResult.summary);
             const betterTitle = extractTitleFromSummary(strippedSummary, c.category);
             await markCaseSeen(env.DB, {
@@ -1388,16 +1461,33 @@ Rules:
               }
             }
             processed++;
+            processedCaseIds.add(String(c.caseId));
           } catch (err) {
             console.error(`ID scrape failed for ${c.caseId}: ${err}`);
             lastError = String(err);
+            await insertErrorLog(env.DB, 'error', 'scrape_id_range', `Exception processing ERA ID ${c.caseId}: ${err}`, undefined, String(c.caseId)).catch(() => {});
             failed++;
           }
         }
 
-        // Update last_era_id to highest probed ID
-        const newLastId = Math.max(startId, endId);
-        await setConfig(env.DB, 'last_era_id', String(newLastId));
+        // Advance last_era_id only past IDs that were processed or already seen —
+        // never past new-but-unprocessed cases, or the gap becomes invisible.
+        const newCaseIds = new Set(newCases.map(c => String(c.caseId)));
+        const blocked: number[] = [];
+        for (const c of allCases) {
+          if (newCaseIds.has(String(c.caseId)) && !processedCaseIds.has(String(c.caseId))) {
+            const idNum = Number(c.caseId);
+            if (!isNaN(idNum)) blocked.push(idNum);
+          }
+        }
+        let newLastId: number;
+        if (blocked.length === 0) {
+          const resolved = allCases.map(c => Number(c.caseId)).filter(n => !isNaN(n));
+          newLastId = resolved.length > 0 ? Math.max(...resolved) : startId - 1;
+        } else {
+          newLastId = Math.min(...blocked) - 1;
+        }
+        await setConfig(env.DB, 'last_era_id', String(Math.max(newLastId, startId - 1)));
 
         return jsonResponse({
           success: true, probed: probeCount, found: allCases.length, new: newCases.length,
@@ -2372,23 +2462,28 @@ async function runDigest(env: Env, force = false, limit = 3): Promise<RunResult>
     // sequential — every integer from 1 to the current max resolves to a real
     // case. New cases always appear at the highest IDs.
     //
-    // Probe strategy: start from a known high-water mark, fetch IDs in parallel
-    // batches of 5 with a 300ms delay between batches. Stop at 3 consecutive
-    // 404s within a batch.
-    const probeStart = 21300; // Conservative floor — current max is ~21325
+    // Probe strategy: start from the maintained high-water mark (last_era_id
+    // config), fetch IDs in parallel batches of 5 with a 300ms delay between
+    // batches. Stop at 3 consecutive 404s (end of the index) or after maxProbe
+    // IDs. last_era_id is advanced at the end of the run — but never past
+    // new-but-unprocessed cases (see marker update after Step 7).
+    const lastIdRaw = await getConfig(env.DB, 'last_era_id');
+    const probeStart = lastIdRaw ? parseInt(lastIdRaw, 10) + 1 : 21300;
     const probeBatchSize = 5;
-    const probeLimit = Math.min(limit * 2, 20); // Probe more than we'll process
+    const maxProbe = Math.max(probeBatchSize * 2, limit * 5); // room to pass seen blocks
     let allCases: CaseListing[] = [];
     let consecutiveMisses = 0;
+    let probed = 0;
 
-    for (let offset = 0; offset < probeLimit && consecutiveMisses < 3; offset += probeBatchSize) {
-      const batchIds = Array.from({ length: probeBatchSize }, (_, i) => probeStart + offset + i);
+    for (let id = probeStart; probed < maxProbe && consecutiveMisses < 3; id += probeBatchSize) {
+      const batchIds = Array.from({ length: probeBatchSize }, (_, i) => id + i);
       const batchResults = await Promise.all(
-        batchIds.map(id =>
-          scrapeEraDetailPage(id).catch(() => null)
+        batchIds.map(i =>
+          scrapeEraDetailPage(i).catch(() => null)
         )
       );
 
+      probed += batchIds.length;
       // Add successes, stop early on 3 consecutive 404s
       let batchHits = 0;
       for (const detail of batchResults) {
@@ -2412,22 +2507,29 @@ async function runDigest(env: Env, force = false, limit = 3): Promise<RunResult>
       // If every ID in this batch missed, increment the counter
       if (batchHits === 0) consecutiveMisses += probeBatchSize;
 
-      if (offset + probeBatchSize < probeLimit) {
+      if (probed < maxProbe) {
         await new Promise(r => setTimeout(r, 300));
       }
     }
 
-    console.log(`ERA Digest: probed IDs ${probeStart}–${probeStart + probeLimit}, found ${allCases.length} new case(s)`);
+    console.log(`ERA Digest: probed IDs ${probeStart}–${probeStart + maxProbe}, found ${allCases.length} new case(s)`);
 
     // Step 3: Filter
-    let newCases = await filterNewCases(env.DB, allCases);
-    console.log(`ERA Digest: ${newCases.length} new cases to process`);
-    if (newCases.length > limit) {
-      newCases = newCases.slice(0, limit);
+    const allNewCases = await filterNewCases(env.DB, allCases);
+    console.log(`ERA Digest: ${allNewCases.length} new cases to process`);
+    let newCases = allNewCases;
+    if (allNewCases.length > limit) {
+      newCases = allNewCases.slice(0, limit);
     }
     result.newCasesFound = newCases.length;
 
     if (newCases.length === 0) {
+      // Everything probed was already seen — advance the marker so the next run
+      // probes forward instead of re-probing the same seen block forever.
+      const resolvedIds = allCases.map(c => Number(c.caseId)).filter(n => !isNaN(n));
+      if (resolvedIds.length > 0) {
+        await setConfig(env.DB, 'last_era_id', String(Math.max(...resolvedIds)));
+      }
       await recordRunAt(env.DB);
       return result;
     }
@@ -2511,7 +2613,8 @@ async function runDigest(env: Env, force = false, limit = 3): Promise<RunResult>
 
     // Step 7: Send digest (only if we have successful cases)
     const subscribers = await getActiveSubscribers(env.DB);
-    if (subscribers.length > 0 && processedCases.length > 0) {
+    const paused = (await getConfig(env.DB, 'system_paused')) === '1';
+    if (subscribers.length > 0 && processedCases.length > 0 && !paused) {
       const notice = await getEmailNotice(env.DB);
       const { sent, failed } = await sendDigestToAll(
         subscribers, processedCases, env.SENDING_ADDRESS,
@@ -2536,9 +2639,11 @@ async function runDigest(env: Env, force = false, limit = 3): Promise<RunResult>
       if (sent > 0) {
         await clearEmailNotice(env.DB);
       }
-    } else if (subscribers.length === 0 && processedCases.length > 0) {
-      console.warn('ERA Digest: no active subscribers, but marking processed cases as seen for archive');
-      // Still mark cases as seen even if no subscribers (for archival purposes)
+    } else if (processedCases.length > 0) {
+      // Emails paused (system_paused) or no subscribers: archive without sending
+      console.log(paused
+        ? 'ERA Digest: emails paused (system_paused) — storing cases without sending'
+        : 'ERA Digest: no active subscribers, but marking processed cases as seen for archive');
       for (const pc of processedCases) {
         await markCaseSeen(env.DB, pc, 'ERA');
         const pdfFilename = pc.pdfUrl?.split('/').pop() ?? '';
@@ -2552,8 +2657,26 @@ async function runDigest(env: Env, force = false, limit = 3): Promise<RunResult>
       console.log('ERA Digest: no successful cases processed, skipping email');
     }
 
-    // Step 8: Record
-    await recordEmailSent(env.DB);
+    // Advance last_era_id only past fully-handled IDs (processed or seen). New
+    // cases that failed or were sliced off by `limit` stay below the marker so
+    // the next run retries them.
+    const processedIds = new Set(processedCases.map(pc => String(pc.caseId)));
+    const blockedIds: number[] = [];
+    for (const c of allNewCases) {
+      if (!processedIds.has(String(c.caseId))) {
+        const idNum = Number(c.caseId);
+        if (!isNaN(idNum)) blockedIds.push(idNum);
+      }
+    }
+    const resolvedIds = allCases.map(c => Number(c.caseId)).filter(n => !isNaN(n));
+    const highestResolved = resolvedIds.length > 0 ? Math.max(...resolvedIds) : probeStart - 1;
+    const newLastId = blockedIds.length > 0 ? Math.min(...blockedIds) - 1 : highestResolved;
+    await setConfig(env.DB, 'last_era_id', String(Math.max(newLastId, probeStart - 1)));
+
+    // Step 8: Record — only when an email was actually sent, so last_email_sent_at stays truthful
+    if (result.emailsSent > 0) {
+      await recordEmailSent(env.DB);
+    }
     console.log(`ERA Digest: done. ${result.summarised} summarised, ${result.emailsSent} sent.`);
     return result;
 

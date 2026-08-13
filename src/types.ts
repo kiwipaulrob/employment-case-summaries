@@ -93,6 +93,43 @@ export interface Env {
 
   // Cron schedule for display
   CRON_SCHEDULE: string;           // e.g. "Daily at 8am NZT (dual cron for DST)"
+
+  // Turnstile bot protection (subscribe form, added 22 Jul 2026)
+  TURNSTILE_SITE_KEY?: string;     // Public site key (non-secret, var)
+  TURNSTILE_SECRET_KEY?: string;   // Secret — set via wrangler secret put
+}
+
+// ─── Multi-block extraction (Jul 2026) ────────────────────────────────────────
+
+export interface ExtractedData {
+  hhd_amount: number | null;
+  lost_wages: number | null;
+  lost_wages_weeks: number | null;
+  weekly_wage: number | null;
+  costs_awarded: number | null;
+  costs_awarded_text: string | null;
+  reinstatement: boolean;
+  reinstatement_sought: boolean;
+  employee_status: string | null;
+  outcome: string | null;
+  extraction_method: string;
+  decision_date: string | null;
+  employment_tenure: string | null;
+  contribution_applied: boolean;
+  contribution_reduction: string | null;
+  contribution_conduct: string | null;
+  penalties: number | null;
+  legal_issues: string | null;
+  legal_issues_applicant_won: string | null;
+  legal_issues_respondent_won: string | null;
+  party_applicant: string | null;
+  party_respondent: string | null;
+  representative_applicant: string | null;
+  representative_respondent: string | null;
+  employment_start: string | null;
+  dismissal_date: string | null;
+  grievance_raised: string | null;
+  keywords: string | null;
 }
 
 // ─── Cloudflare AI / Unified Inference ────────────────────────────────────────

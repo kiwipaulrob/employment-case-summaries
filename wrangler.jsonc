@@ -72,7 +72,8 @@
     "TIMEZONE": "Pacific/Auckland",
     "TRIGGER_MODE": "scheduled",
     "SITE_URL": "https://whenroutinebiteshard.com",
-    "CRON_SCHEDULE": "Daily at 8am NZT (dual cron for DST)"
+    "CRON_SCHEDULE": "Daily at 8am NZT (dual cron for DST)",
+    "TURNSTILE_SITE_KEY": "1x00000000000000000000AA"
   },
 
   // ── Observability ─────────────────────────────────────────────────────────────
