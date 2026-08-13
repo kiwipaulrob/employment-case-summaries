@@ -2138,9 +2138,16 @@ Rules:
     // ══════════════════════════════════════════════════════════════════════════
     // ADMIN API ROUTES (Bearer token required)
     // ══════════════════════════════════════════════════════════════════════════
-
+    //
+    // Exception: the three endpoints the dashboard consumes (/admin/seen-cases,
+    // /admin/send-digest, /admin/errors) are dual-auth — browser JS can only send
+    // the era_admin session cookie, so each carries its own isAuthenticated()
+    // check (cookie OR Bearer). Everything below stays Bearer-only.
     const authHeader = request.headers.get('Authorization') ?? '';
-    if (!authHeader.startsWith('Bearer ') || !timingSafeEqual(authHeader.slice(7), env.ADMIN_SECRET)) {
+    const isDualAuthPath = url.pathname === '/admin/seen-cases'
+      || url.pathname === '/admin/send-digest'
+      || url.pathname === '/admin/errors';
+    if (!isDualAuthPath && (!authHeader.startsWith('Bearer ') || !timingSafeEqual(authHeader.slice(7), env.ADMIN_SECRET))) {
       return new Response('Unauthorized', { status: 401 });
     }
 
@@ -2257,6 +2264,7 @@ Rules:
 
     // POST /admin/send-digest — send digest from existing summaries
     if (request.method === 'POST' && url.pathname === '/admin/send-digest') {
+      if (!isAuthenticated(request, env)) return new Response('Unauthorized', { status: 401 });
       const diagnostics: Record<string, unknown> = {};
       try {
         const limit = parseInt(url.searchParams.get('limit') ?? '10', 10);
