@@ -4,7 +4,7 @@
   "description": "Automated daily digest of Employment Relations Authority determinations",
   "main": "src/index.ts",
   "scripts": {
-    "dev": "wrangler dev",
+    "dev": "wrangler dev --port 8000",
     "deploy": "wrangler deploy",
     "deploy:dry": "wrangler deploy --dry-run",
     "db:create": "wrangler d1 create era-digest",
@@ -22,5 +22,10 @@
     "typescript": "^6.0.3",
     "vitest": "^4.1.8",
     "wrangler": "^4.100.0"
+  },
+  "allowScripts": {
+    "esbuild@0.27.3": true,
+    "sharp@0.34.5": true,
+    "workerd@1.20260611.1": true
   }
 }
