@@ -793,7 +793,7 @@ export function getDashboardHtml(status: {
             <label>Search</label>
             <input type="text" id="search-input" placeholder="Search query..." style="width:100%;">
           </div>
-          <div style="flex:0 0 160px;">
+          <div style="flex:0 0 170px;">
             <label>Field</label>
             <select id="search-field" style="width:100%;">
               <option value="">All fields</option>
@@ -802,11 +802,17 @@ export function getDashboardHtml(status: {
               <option value="member">Member</option>
               <option value="category">Category</option>
               <option value="pdf_filename">Filename</option>
+              <option value="legal_issues">Legal issues</option>
+              <option value="keywords">Keywords</option>
+              <option value="parties">Parties</option>
+              <option value="dates">Dates</option>
             </select>
           </div>
-          <button class="button" onclick="searchCases()" id="search-btn">Search</button>
+          <button class="button" onclick="searchCases(1)" id="search-btn">Search</button>
         </div>
+        <div style="margin-top:10px;font-size:12px;color:#666;" id="search-mode-hint">Uses full-text search (relevance-ranked) when the FTS index is present; falls back to LIKE otherwise.</div>
         <div id="search-results" style="margin-top:16px;"></div>
+        <div id="search-pagination" style="margin-top:12px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;"></div>
       </div>
     </div>
   </div>
@@ -1716,34 +1722,74 @@ export function getDashboardHtml(status: {
     }
 
     // ─── Search tab ──────────────────────────────────────────────────────────
-    async function searchCases() {
+    let _searchPage = 1;
+    let _searchQuery = '';
+    let _searchField = '';
+
+    async function searchCases(page) {
       const q = document.getElementById('search-input').value.trim();
       const field = document.getElementById('search-field').value;
       const resultsDiv = document.getElementById('search-results');
-      if (!q) { resultsDiv.innerHTML = '<p style="color:#999;">Enter a search query.</p>'; return; }
+      const pagerDiv = document.getElementById('search-pagination');
+      if (!q) { resultsDiv.innerHTML = '<p style="color:#999;">Enter a search query.</p>'; pagerDiv.innerHTML = ''; return; }
+      // Reset to page 1 when the query or field changes
+      if (q !== _searchQuery || field !== _searchField) _searchPage = 1;
+      _searchQuery = q; _searchField = field;
+      if (page) _searchPage = page;
       resultsDiv.innerHTML = '<p style="color:#999;">Searching...</p>';
+      pagerDiv.innerHTML = '';
       try {
-        const params = new URLSearchParams({ q, field, limit: '20' });
+        const params = new URLSearchParams({ q, field, limit: '20', page: String(_searchPage) });
         const resp = await fetch('/admin/dashboard/search-cases?' + params.toString(), { credentials: 'same-origin' });
         if (!resp.ok) throw new Error('HTTP ' + resp.status);
         const data = await resp.json();
         const results = data.results || [];
+        document.getElementById('search-mode-hint').textContent =
+          data.usedFts ? 'Full-text search (relevance-ranked)' : 'LIKE search (FTS index not present)';
         if (results.length === 0) {
           resultsDiv.innerHTML = '<p style="color:#999;">No results found.</p>';
+          pagerDiv.innerHTML = '';
           return;
         }
-        let html = '<p style="font-size:13px;color:#666;margin-bottom:8px;">Found ' + data.count + ' result(s)</p>';
+        let html = '<p style="font-size:13px;color:#666;margin-bottom:8px;">Found ' + data.count + ' result(s)' +
+          (data.pages > 1 ? ' · page ' + data.page + ' of ' + data.pages : '') + '</p>';
         for (const r of results) {
-          const summary = r.summary ? (r.summary.length > 200 ? r.summary.slice(0, 200) + '...' : r.summary) : '—';
+          const title = esc(r.title || '—');
+          // FTS snippets carry \x01/\x02 sentinel markers around matched terms;
+          // escape the text first, then convert sentinels to <mark> (XSS-safe).
+          let summary = r.snippet
+            ? esc(r.snippet).replace(/\x01/g, '<mark>').replace(/\x02/g, '</mark>')
+            : (r.summary ? (r.summary.length > 200 ? r.summary.slice(0, 200) + '...' : r.summary) : '—');
+          if (!r.snippet) summary = esc(summary);
+          const homeLink = r.era_id && r.home_page
+            ? '<a href="/?expand=' + encodeURIComponent(r.era_id) + '&page=' + r.home_page + '#case-' + encodeURIComponent(r.era_id) + '" target="_blank">View on front page →</a>'
+            : '';
+          const pdfLink = r.pdf_url ? '<a href="' + esc(r.pdf_url) + '" target="_blank" rel="noopener">PDF</a>' : '';
+          const caseLink = r.case_url ? '<a href="' + esc(r.case_url) + '" target="_blank" rel="noopener">ERA website</a>' : '';
+          const metaBits = [r.member, r.paragraph_count ? r.paragraph_count + ' paragraphs' : null, r.date_published, r.era_id ? 'ERA ID: ' + r.era_id : null].filter(Boolean).join(' · ');
           html += '<div style="padding:10px;background:white;border:1px solid #e0e0e0;border-radius:4px;margin-bottom:6px;">';
-          html += '<div style="font-size:14px;font-weight:600;">' + esc(r.title || '—') + '</div>';
-          html += '<div style="font-size:12px;color:#555;margin-top:4px;">' + esc(summary) + '</div>';
-          html += '<div style="font-size:11px;color:#999;margin-top:4px;">' + (r.processed_at || '') + '</div>';
+          html += '<div style="font-size:14px;font-weight:600;">' + title + '</div>';
+          html += '<div style="font-size:12px;color:#555;margin-top:4px;">' + summary + '</div>';
+          html += '<div style="font-size:11px;color:#999;margin-top:4px;">' + esc(metaBits) + '</div>';
+          html += '<div style="font-size:12px;margin-top:6px;">' + [homeLink, pdfLink, caseLink].filter(Boolean).join(' · ') + '</div>';
           html += '</div>';
         }
         resultsDiv.innerHTML = html;
+        // Pagination
+        let pager = '';
+        if (data.pages > 1) {
+          const cur = data.page;
+          const mk = (p, label) => p === cur
+            ? '<span style="padding:4px 10px;background:#1d4ed8;color:#fff;border-radius:4px;font-size:12px;">' + label + '</span>'
+            : '<a href="#" onclick="event.preventDefault();searchCases(' + p + ');return false;" style="padding:4px 10px;border:1px solid #cbd5e1;border-radius:4px;font-size:12px;text-decoration:none;">' + label + '</a>';
+          if (cur > 1) pager += mk(cur - 1, '‹ Prev');
+          for (let p = Math.max(1, cur - 2); p <= Math.min(data.pages, cur + 2); p++) pager += mk(p, p);
+          if (cur < data.pages) pager += mk(cur + 1, 'Next ›');
+        }
+        pagerDiv.innerHTML = pager;
       } catch (err) {
         resultsDiv.innerHTML = '<div class="alert alert-error" style="font-size:13px;">❌ ' + esc(err.message) + '</div>';
+        pagerDiv.innerHTML = '';
       }
     }
 

@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Search — ERA Digest (mockup)</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html { font-size: 16px; -webkit-text-size-adjust: 100%; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+    background: #f8f9fa;
+    color: #1e293b;
+    line-height: 1.6;
+    min-height: 100vh;
+  }
+  a { color: #1d4ed8; text-decoration: underline; }
+  a:hover { color: #1e40af; }
+  .container { max-width: 720px; margin: 0 auto; padding: 0 20px; }
+
+  /* Header — identical to live site, plus a Search nav item + inline search box */
+  .site-header { background: #0f172a; padding: 14px 0; }
+  .site-header .container { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  .site-header a { color: #ffffff; text-decoration: none; }
+  .site-header a:hover { color: #cbd5e1; }
+  .logo-mark {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 36px; height: 36px; background: #1d4ed8; border-radius: 8px;
+    font-size: 18px; font-weight: 700; color: white; flex-shrink: 0;
+  }
+  .site-name { font-size: 18px; font-weight: 600; letter-spacing: -0.3px; color: white; }
+  .site-tagline { font-size: 13px; color: #94a3b8; margin-left: auto; }
+  nav { display: flex; gap: 16px; font-size: 14px; align-items: center; }
+  nav a.active { color: #93c5fd; font-weight: 600; }
+
+  /* Inline header search (small box, submits to /search) */
+  .header-search form { display: flex; align-items: center; }
+  .header-search input {
+    padding: 6px 12px; border-radius: 6px 0 0 6px; border: 1px solid #334155;
+    background: #1e293b; color: #e2e8f0; font-size: 13px; width: 180px; outline: none;
+  }
+  .header-search button {
+    padding: 6px 12px; border-radius: 0 6px 6px 0; border: 1px solid #334155; border-left: 0;
+    background: #1e3a5f; color: #e2e8f0; font-size: 13px; cursor: pointer;
+  }
+
+  .page-content { padding: 40px 0 64px 0; }
+
+  /* Search hero */
+  .search-hero { margin-bottom: 28px; }
+  .search-hero h1 { font-size: 26px; font-weight: 700; color: #0f172a; margin-bottom: 6px; }
+  .search-hero p { font-size: 14px; color: #64748b; margin-bottom: 18px; }
+
+  /* Big search form with field dropdown (advanced search) */
+  .search-form {
+    display: flex; gap: 10px; align-items: stretch; flex-wrap: wrap;
+  }
+  .search-form input[type="text"] {
+    flex: 1 1 300px; padding: 12px 16px; font-size: 16px;
+    border: 1px solid #cbd5e1; border-radius: 8px; background: #ffffff; outline: none;
+  }
+  .search-form input[type="text"]:focus { border-color: #1d4ed8; box-shadow: 0 0 0 3px rgba(29,78,216,0.12); }
+  .search-form select {
+    padding: 12px 12px; font-size: 14px; border: 1px solid #cbd5e1; border-radius: 8px;
+    background: #ffffff; color: #1e293b; max-width: 190px;
+  }
+  .search-form button {
+    padding: 12px 24px; font-size: 15px; font-weight: 600; color: #fff;
+    background: #1d4ed8; border: none; border-radius: 8px; cursor: pointer;
+  }
+  .search-form button:hover { background: #1e40af; }
+
+  /* Field chips (advanced search quick filters) */
+  .field-chips { margin-top: 12px; display: flex; gap: 8px; flex-wrap: wrap; font-size: 12px; }
+  .field-chips a {
+    padding: 4px 10px; border: 1px solid #cbd5e1; border-radius: 999px; color: #475569;
+    text-decoration: none; background: #fff;
+  }
+  .field-chips a.on { background: #dbeafe; border-color: #93c5fd; color: #1e40af; font-weight: 600; }
+
+  /* Results meta line */
+  .results-meta {
+    display: flex; justify-content: space-between; align-items: center;
+    font-size: 13px; color: #64748b; margin: 4px 0 16px 0;
+  }
+
+  /* Result card — mirrors case-card, adds highlight + links row */
+  .result-card {
+    background: #ffffff; border: 1px solid #e2e8f0; border-radius: 10px;
+    padding: 18px 22px; margin-bottom: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+  }
+  .result-card h3 { font-size: 16px; font-weight: 600; margin-bottom: 4px; }
+  .result-card h3 a { color: #0f172a; text-decoration: none; }
+  .result-card h3 a:hover { color: #1d4ed8; text-decoration: underline; }
+  .result-meta { font-size: 12px; color: #64748b; margin-bottom: 8px; }
+  .result-snippet { font-size: 14px; color: #334155; margin-bottom: 10px; }
+  mark {
+    background: #fef08a; color: #1e293b; padding: 0 2px; border-radius: 3px; font-weight: 600;
+  }
+  .result-links { font-size: 12px; }
+  .result-links a { margin-right: 14px; font-weight: 500; }
+  .pill {
+    display: inline-block; font-size: 11px; padding: 2px 8px; border-radius: 999px;
+    background: #dbeafe; color: #1e40af; margin-right: 8px;
+  }
+  .pill.classified { background: #fef3c7; color: #92400e; }
+
+  /* Pagination — matches front-page pattern */
+  .pagination { display: flex; justify-content: center; gap: 8px; margin-top: 24px; flex-wrap: wrap; }
+  .pagination a, .pagination span {
+    padding: 7px 13px; border: 1px solid #cbd5e1; border-radius: 6px;
+    font-size: 14px; color: #1d4ed8; text-decoration: none; background: #fff;
+  }
+  .pagination a:hover { background: #eff6ff; }
+  .pagination span.cur { background: #1d4ed8; color: #fff; border-color: #1d4ed8; font-weight: 600; }
+  .pagination span.gap { border: none; background: none; color: #94a3b8; padding: 7px 4px; }
+
+  /* Empty / error states */
+  .empty-state { text-align: center; padding: 48px 0; color: #64748b; }
+  .empty-state .big { font-size: 40px; margin-bottom: 10px; }
+
+  .site-footer { border-top: 1px solid #e2e8f0; padding: 20px 0; text-align: center; font-size: 12px; color: #94a3b8; }
+
+  @media (max-width: 640px) {
+    .site-tagline { display: none; }
+    .header-search { display: none; }
+    .search-form select { max-width: 100%; }
+  }
+
+  /* Mockup banner (not part of the real design — removed in production) */
+  .mockup-banner {
+    background: #fef3c7; color: #92400e; text-align: center; font-size: 12px;
+    padding: 6px; border-bottom: 1px solid #fde68a;
+  }
+</style>
+</head>
+<body>
+<div class="mockup-banner">MOCKUP — public Search feature. Not live. Illustrates layout, FTS5 snippets and deep links.</div>
+
+<header class="site-header">
+  <div class="container">
+    <a href="/" style="display:flex;align-items:center;gap:10px;text-decoration:none;">
+      <div class="logo-mark">E</div>
+      <span class="site-name">ERA Digest</span>
+    </a>
+    <span class="site-tagline">NZ Employment Law Determinations</span>
+    <nav>
+      <a href="/">Cases</a>
+      <a href="/awards">Awards</a>
+      <a href="/search" class="active">Search</a>
+    </nav>
+    <div class="header-search">
+      <form action="/search" method="get">
+        <input type="text" name="q" placeholder="Search determinations…" value="redundan">
+        <button type="submit">Go</button>
+      </form>
+    </div>
+  </div>
+</header>
+
+<div class="page-content">
+  <div class="container">
+
+    <div class="search-hero">
+      <h1>Search determinations</h1>
+      <p>Search 199 NZ Employment Relations Authority determinations. Results are ranked by relevance; terms are highlighted. Use the dropdown for an advanced search on a specific field.</p>
+
+      <form class="search-form" action="/search" method="get">
+        <input type="text" name="q" value="redundan" placeholder="e.g. unjustified dismissal, redundancy, s 103A…">
+        <select name="field" aria-label="Search field">
+          <option value="">All fields</option>
+          <option value="title">Title</option>
+          <option value="summary">Summary</option>
+          <option value="member">Member</option>
+          <option value="category">Category</option>
+          <option value="pdf_filename">Filename / citation</option>
+          <option value="legal_issues">Legal issues</option>
+          <option value="keywords">Keywords</option>
+          <option value="parties">Parties</option>
+          <option value="dates">Dates</option>
+        </select>
+        <button type="submit">Search</button>
+      </form>
+
+      <div class="field-chips">
+        <a href="/search?q=redundan" class="on">All</a>
+        <a href="/search?q=redundan&field=title">Title</a>
+        <a href="/search?q=redundan&field=summary">Summary</a>
+        <a href="/search?q=redundan&field=member">Member</a>
+        <a href="/search?q=redundan&field=category">Category</a>
+        <a href="/search?q=redundan&field=legal_issues">Legal issues</a>
+        <a href="/search?q=redundan&field=keywords">Keywords</a>
+      </div>
+    </div>
+
+    <div class="results-meta">
+      <span><strong>11 results</strong> for “redundan” · page 1 of 1 · ranked by relevance</span>
+    </div>
+
+    <!-- Result 1 — summary field hit, deep-linked -->
+    <div class="result-card">
+      <h3><a href="/?expand=21487&page=1#case-21487">Geneva Chan v Hamilton City Council [2026] NZERA 524</a></h3>
+      <div class="result-meta">
+        <span class="pill">Summary match</span>
+        Member: L. Geelen · 34 paragraphs · 2026-08-06 · ERA ID: 21487
+      </div>
+      <div class="result-snippet">
+        …claiming <mark>redundancy</mark> compensation under s 40(1)(a). The Council restructuring… her role was disestablished and she was offered a lesser role… <mark>Redundancy</mark> payments were not made within the statutory period…
+      </div>
+      <div class="result-links">
+        <a href="/?expand=21487&page=1#case-21487">View summary on Cases page →</a>
+        <a href="#">Download PDF</a>
+        <a href="#">View on ERA website</a>
+      </div>
+    </div>
+
+    <!-- Result 2 — title field hit -->
+    <div class="result-card">
+      <h3><a href="/?expand=21324&page=2#case-21324">Maria Santos v Kiwi Logistics Ltd [2026] NZERA 517</a></h3>
+      <div class="result-meta">
+        <span class="pill">Title match</span>
+        Member: M. Anderson · 21 paragraphs · 2026-08-04 · ERA ID: 21324
+      </div>
+      <div class="result-snippet">
+        <mark>Redundancy</mark> — whether the dismissal was genuine and whether the employer acted in good faith when making the position redundant…
+      </div>
+      <div class="result-links">
+        <a href="/?expand=21324&page=2#case-21324">View summary on Cases page →</a>
+        <a href="#">Download PDF</a>
+        <a href="#">View on ERA website</a>
+      </div>
+    </div>
+
+    <!-- Result 3 — classified case (all cases included per requirement) -->
+    <div class="result-card">
+      <h3><a href="/?expand=21389&page=3#case-21389">David Lee v Auckland Engineering Ltd [2026] NZERA 511</a></h3>
+      <div class="result-meta">
+        <span class="pill">Legal issues match</span>
+        <span class="pill classified">[COSTS ONLY]</span>
+        Member: R. Chambers · 12 paragraphs · 2026-07-30 · ERA ID: 21389
+      </div>
+      <div class="result-snippet">
+        …<mark>redundan</mark>cy-related costs… fixing and apportioning costs under clause 19 of Schedule 3…
+      </div>
+      <div class="result-links">
+        <a href="/?expand=21389&page=3#case-21389">View summary on Cases page →</a>
+        <a href="#">Download PDF</a>
+        <a href="#">View on ERA website</a>
+      </div>
+    </div>
+
+    <!-- Result 4 — member field hit -->
+    <div class="result-card">
+      <h3><a href="/?expand=21290&page=3#case-21290">Peter Ngata v Wellington Regional Council [2026] NZERA 508</a></h3>
+      <div class="result-meta">
+        <span class="pill">Member match</span>
+        Member: R. Chambers · 45 paragraphs · 2026-07-28 · ERA ID: 21290
+      </div>
+      <div class="result-snippet">
+        …constructive dismissal claim… the <mark>redundant</mark> position had been filled by a contractor within days…
+      </div>
+      <div class="result-links">
+        <a href="/?expand=21290&page=3#case-21290">View summary on Cases page →</a>
+        <a href="#">Download PDF</a>
+        <a href="#">View on ERA website</a>
+      </div>
+    </div>
+
+    <!-- Result 5 — pagination demo: show a "next" page exists -->
+    <div class="result-card">
+      <h3><a href="/?expand=21441&page=4#case-21441">Susan Cole v Bright Dental Group [2026] NZERA 503</a></h3>
+      <div class="result-meta">
+        <span class="pill">Keywords match</span>
+        Member: T. Wilson · 18 paragraphs · 2026-07-25 · ERA ID: 21441
+      </div>
+      <div class="result-snippet">
+        Keywords: <mark>redundancy</mark>, restructuring, consultation, good faith…
+      </div>
+      <div class="result-links">
+        <a href="/?expand=21441&page=4#case-21441">View summary on Cases page →</a>
+        <a href="#">Download PDF</a>
+        <a href="#">View on ERA website</a>
+      </div>
+    </div>
+
+    <div class="pagination">
+      <span class="cur">1</span>
+      <a href="#">2</a>
+      <a href="#">3</a>
+      <span class="gap">…</span>
+      <a href="#">6</a>
+    </div>
+
+  </div>
+</div>
+
+<footer class="site-footer">
+  <div class="container">
+    &copy; 2026 ERA Digest &mdash; Summaries are AI-generated. Always refer to the full determination.
+  </div>
+</footer>
+
+</body>
+</html>

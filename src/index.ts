@@ -43,7 +43,7 @@ import {
   insertCaseAward, upsertExtractedData, getCaseAwardRows, getCasesWithoutAwards,
   savePromptWithHistory, getPromptVersions, revertPromptToVersion,
   insertErrorLog, getRecentErrors, getVisibleCaseOrder,
-  updateCaseSummary, searchCases,
+  updateCaseSummary, searchCases, ftsIndexExists, createFtsIndex,
 } from './db';
 import { scrapeRecentPage, scrapeAllPages, enrichCasesWithDetails, scrapeEraDetailPage } from './scraper';
 import { getPdfContent, getPdfContentFromBytes, type PdfContent } from './pdf';
@@ -2082,15 +2082,45 @@ Rules:
       }
     }
 
-    // GET /admin/dashboard/search-cases — Admin search
+    // GET /admin/dashboard/search-cases — Admin search (FTS5 + LIKE fallback)
+    // Query params: q, field (title|member|category|pdf_filename|summary|legal_issues|keywords|parties|dates), page, limit
     if (request.method === 'GET' && url.pathname === '/admin/dashboard/search-cases') {
       if (!isAuthenticated(request, env)) return new Response('Unauthorized', { status: 401 });
       const q = url.searchParams.get('q') || '';
       const field = url.searchParams.get('field') || '';
-      const limit = parseInt(url.searchParams.get('limit') ?? '20', 10);
-      if (!q.trim()) return jsonResponse({ results: [], count: 0 });
-      const results = await searchCases(env.DB, q.trim(), field || undefined, Math.min(limit, 100));
-      return jsonResponse({ results, count: results.length });
+      const page = Math.max(1, parseInt(url.searchParams.get('page') ?? '1', 10) || 1);
+      const limit = Math.min(Math.max(parseInt(url.searchParams.get('limit') ?? '20', 10) || 20, 1), 100);
+      if (!q.trim()) return jsonResponse({ results: [], count: 0, page: 1, pages: 0, usedFts: false });
+      const offset = (page - 1) * limit;
+      const { results, count, usedFts } = await searchCases(env.DB, q.trim(), field || undefined, limit, offset);
+      // Enrich with front-page deep-link info (same pageMap as the awards page).
+      // Cases not in the visible order (e.g. [ENFORCEMENT]/[LABOUR INSPECTOR] tagged)
+      // are not shown on the home page, so they get no home link.
+      const caseOrder = await getVisibleCaseOrder(env.DB);
+      const pageMap = new Map<string, number>();
+      caseOrder.forEach((c, i) => pageMap.set(c.pdf_filename, Math.floor(i / 20) + 1));
+      const enriched = results.map((r) => {
+        const eraId = r.case_url?.match(/\/view\/(\d+)/)?.[1]
+          || r.pdf_filename?.replace(/\.pdf$/i, '')?.match(/\d+$/)?.[0]
+          || null;
+        const homePage = eraId ? pageMap.get(r.pdf_filename) : undefined;
+        return { ...r, era_id: eraId, home_page: homePage ?? null };
+      });
+      return jsonResponse({ results: enriched, count, page, pages: Math.ceil(count / limit), usedFts });
+    }
+
+    // POST /admin/dashboard/search-migrate — create the FTS5 search index (migration 0020)
+    // Runs the idempotent DDL through the Worker's own D1 binding. Needed because host
+    // Cloudflare tokens are Workers:Edit-only and cannot execute D1 directly (7403).
+    if (request.method === 'POST' && url.pathname === '/admin/dashboard/search-migrate') {
+      if (!isAuthenticated(request, env)) return new Response('Unauthorized', { status: 401 });
+      const already = await ftsIndexExists(env.DB);
+      if (already) return jsonResponse({ success: true, message: 'FTS index already exists', created: false });
+      const out = await createFtsIndex(env.DB);
+      if (out.created) {
+        return jsonResponse({ success: true, message: 'FTS index created and backfilled', created: true });
+      }
+      return jsonResponse({ success: false, error: out.error ?? 'Failed to create FTS index' }, 500);
     }
 
     // ══════════════════════════════════════════════════════════════════════════

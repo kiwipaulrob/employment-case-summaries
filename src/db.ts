@@ -608,27 +608,217 @@ export async function pruneErrorLog(db: D1Database, daysOld = 30): Promise<numbe
   return result.meta.changes || 0;
 }
 
-/** Search seen_cases by query against title, member, category, pdf_filename, summary */
+/** Fields that can be searched. FTS column names map 1:1 except aliases. */
+const SEARCH_FIELDS = new Set([
+  'title', 'member', 'category', 'pdf_filename', 'summary',
+  'legal_issues', 'keywords', 'parties', 'dates',
+]);
+
+/**
+ * Build a safe FTS5 MATCH expression from a user query.
+ * Each whitespace-separated term is sanitized to alphanumerics (FTS5 special
+ * chars like : ( ) * " - are stripped — they'd otherwise inject syntax or
+ * quote phrases) and given a * prefix so partial words match ("redundan"
+ * finds "redundancy"). Terms are AND-ed. Field-scoped queries use the
+ * `field:term*` form. Returns '' when nothing searchable remains (caller
+ * falls back to LIKE).
+ */
+export function buildFtsQuery(rawQuery: string, field?: string): string {
+  const terms = rawQuery
+    .split(/\s+/)
+    .map((t) => t.replace(/[^\p{L}\p{N}]+/gu, '').trim())
+    .filter((t) => t.length > 0)
+    .map((t) => `${t}*`);
+  if (terms.length === 0) return '';
+  const prefix = field && SEARCH_FIELDS.has(field) ? `${field}:` : '';
+  return prefix + terms.join(' AND ');
+}
+
+/** FTS column index for snippet() — must match the CREATE VIRTUAL TABLE order. */
+const FTS_COLUMN_INDEX: Record<string, number> = {
+  title: 1, member: 2, category: 3, summary: 4,
+  legal_issues: 5, keywords: 6, parties: 7, dates: 8,
+};
+
+/**
+ * Search seen_cases by query. Primary path: FTS5 full-text index
+ * (seen_cases_fts — migration 0020) with bm25 relevance ranking and
+ * snippet highlighting. Fallback: LIKE scan (pre-migration safety) so the
+ * endpoint never 500s if the index is missing.
+ *
+ * Returns { results, count, usedFts } — results carry a `snippet` excerpt
+ * with <mark> highlights around matched terms when the FTS path is used.
+ */
 export async function searchCases(
   db: D1Database,
   query: string,
   field?: string,
-  limit = 20
-): Promise<DbSeenCase[]> {
-  const term = `%${query}%`;
-  let sql: string;
-  let params: unknown[];
-  if (field && ['title', 'member', 'category', 'pdf_filename'].includes(field)) {
-    sql = `SELECT * FROM seen_cases WHERE ${field} LIKE ? ORDER BY processed_at DESC LIMIT ?`;
-    params = [term, limit];
-  } else if (field === 'summary') {
-    sql = `SELECT * FROM seen_cases WHERE summary LIKE ? ORDER BY processed_at DESC LIMIT ?`;
-    params = [term, limit];
-  } else {
-    // All fields: search title, member, category, pdf_filename, and summary
-    sql = `SELECT * FROM seen_cases WHERE title LIKE ? OR member LIKE ? OR category LIKE ? OR pdf_filename LIKE ? OR summary LIKE ? ORDER BY processed_at DESC LIMIT ?`;
-    params = [term, term, term, term, term, limit];
+  limit = 20,
+  offset = 0
+): Promise<{ results: DbSeenCase[]; count: number; usedFts: boolean }> {
+  const ftsQuery = buildFtsQuery(query, field);
+  const hasFtsIndex = await ftsIndexExists(db);
+  if (hasFtsIndex && ftsQuery) {
+    try {
+      // snippet() column: use the searched field's column if scoped, else summary (4)
+      // Sentinels \x01/\x02 are used instead of <mark> tags so the client can
+      // HTML-escape the surrounding text before converting them (XSS-safe).
+      const snippetCol = field && FTS_COLUMN_INDEX[field] !== undefined ? FTS_COLUMN_INDEX[field] : 4;
+      const sql = `
+        SELECT sc.*, snippet(seen_cases_fts, ${snippetCol}, char(1), char(2), '…', 12) AS __snippet
+        FROM seen_cases_fts
+        JOIN seen_cases sc ON sc.pdf_filename = seen_cases_fts.pdf_filename AND sc.source = seen_cases_fts.source
+        WHERE seen_cases_fts MATCH ?
+        ORDER BY bm25(seen_cases_fts)
+        LIMIT ? OFFSET ?`;
+      const result = await db.prepare(sql).bind(ftsQuery, limit, offset).all<DbSeenCase & { __snippet?: string }>();
+      const countRes = await db
+        .prepare(`SELECT count(*) AS n FROM seen_cases_fts WHERE seen_cases_fts MATCH ?`)
+        .bind(ftsQuery)
+        .first<{ n: number }>();
+      const count = countRes?.n ?? result.results.length;
+      const results = result.results.map((r) => {
+        const { __snippet, ...rest } = r as any;
+        return { ...rest, snippet: __snippet ?? null } as DbSeenCase & { snippet?: string | null };
+      });
+      return { results: results as unknown as DbSeenCase[], count, usedFts: true };
+    } catch (err) {
+      // FTS path failed (e.g. malformed query) — fall through to LIKE
+      console.error(`FTS search failed, falling back to LIKE: ${err}`);
+    }
   }
-  const result = await db.prepare(sql).bind(...params).all<DbSeenCase>();
-  return result.results;
+
+  // ── LIKE fallback (pre-migration / FTS failure) ──────────────────────────
+  const term = `%${query}%`;
+  // Awards data-block fields live in case_awards, so the fallback JOINs it.
+  const LIKE_COLUMNS: Record<string, string> = {
+    title: 'sc.title', member: 'sc.member', category: 'sc.category',
+    pdf_filename: 'sc.pdf_filename', summary: 'sc.summary',
+    legal_issues: 'ca.legal_issues', keywords: 'ca.keywords',
+    parties: "COALESCE(ca.party_applicant,'') || ' ' || COALESCE(ca.party_respondent,'')",
+    dates: 'COALESCE(ca.decision_date,\'\')',
+  };
+  const BASE_JOIN = `FROM seen_cases sc LEFT JOIN case_awards ca ON ca.pdf_filename = sc.pdf_filename AND ca.source = sc.source`;
+  let whereSql: string;
+  let params: unknown[];
+  if (field && LIKE_COLUMNS[field]) {
+    whereSql = `${LIKE_COLUMNS[field]} LIKE ?`;
+    params = [term, limit, offset];
+  } else {
+    whereSql = `sc.title LIKE ? OR sc.member LIKE ? OR sc.category LIKE ? OR sc.pdf_filename LIKE ? OR sc.summary LIKE ?`;
+    params = [term, term, term, term, term, limit, offset];
+  }
+  const result = await db
+    .prepare(`SELECT sc.* ${BASE_JOIN} WHERE ${whereSql} ORDER BY sc.processed_at DESC LIMIT ? OFFSET ?`)
+    .bind(...params)
+    .all<DbSeenCase>();
+  const countRes = await db
+    .prepare(`SELECT count(*) AS n ${BASE_JOIN} WHERE ${whereSql}`)
+    .bind(...params.slice(0, -2))
+    .first<{ n: number }>();
+  return { results: result.results, count: countRes?.n ?? result.results.length, usedFts: false };
+}
+
+/** Whether the FTS5 search index (migration 0020) exists in this database. */
+export async function ftsIndexExists(db: D1Database): Promise<boolean> {
+  try {
+    const res = await db
+      .prepare(`SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'seen_cases_fts'`)
+      .first<{ name: string }>();
+    return !!res;
+  } catch {
+    return false;
+  }
+}
+
+/** Create the FTS5 search index (migration 0020) if it does not exist. */
+export async function createFtsIndex(db: D1Database): Promise<{ created: boolean; error?: string }> {
+  const ddl = `
+CREATE VIRTUAL TABLE IF NOT EXISTS seen_cases_fts USING fts5(
+  pdf_filename UNINDEXED,
+  title,
+  member,
+  category,
+  summary,
+  legal_issues,
+  keywords,
+  parties,
+  dates,
+  tokenize = 'unicode61'
+);
+
+CREATE TRIGGER IF NOT EXISTS seen_cases_fts_ai AFTER INSERT ON seen_cases BEGIN
+  INSERT INTO seen_cases_fts(pdf_filename, title, member, category, summary,
+                             legal_issues, keywords, parties, dates)
+  VALUES (NEW.pdf_filename, NEW.title, NEW.member, NEW.category, NEW.summary,
+    (SELECT legal_issues FROM case_awards WHERE pdf_filename = NEW.pdf_filename AND source = NEW.source),
+    (SELECT keywords FROM case_awards WHERE pdf_filename = NEW.pdf_filename AND source = NEW.source),
+    (SELECT TRIM(COALESCE(party_applicant,'') || ' ' || COALESCE(party_respondent,'')) FROM case_awards WHERE pdf_filename = NEW.pdf_filename AND source = NEW.source),
+    (SELECT COALESCE(decision_date,'') FROM case_awards WHERE pdf_filename = NEW.pdf_filename AND source = NEW.source));
+END;
+
+CREATE TRIGGER IF NOT EXISTS seen_cases_fts_au AFTER UPDATE ON seen_cases BEGIN
+  DELETE FROM seen_cases_fts WHERE pdf_filename = OLD.pdf_filename;
+  INSERT INTO seen_cases_fts(pdf_filename, title, member, category, summary,
+                             legal_issues, keywords, parties, dates)
+  VALUES (NEW.pdf_filename, NEW.title, NEW.member, NEW.category, NEW.summary,
+    (SELECT legal_issues FROM case_awards WHERE pdf_filename = NEW.pdf_filename AND source = NEW.source),
+    (SELECT keywords FROM case_awards WHERE pdf_filename = NEW.pdf_filename AND source = NEW.source),
+    (SELECT TRIM(COALESCE(party_applicant,'') || ' ' || COALESCE(party_respondent,'')) FROM case_awards WHERE pdf_filename = NEW.pdf_filename AND source = NEW.source),
+    (SELECT COALESCE(decision_date,'') FROM case_awards WHERE pdf_filename = NEW.pdf_filename AND source = NEW.source));
+END;
+
+CREATE TRIGGER IF NOT EXISTS seen_cases_fts_ad AFTER DELETE ON seen_cases BEGIN
+  DELETE FROM seen_cases_fts WHERE pdf_filename = OLD.pdf_filename;
+END;
+
+CREATE TRIGGER IF NOT EXISTS seen_cases_fts_ca_ai AFTER INSERT ON case_awards BEGIN
+  DELETE FROM seen_cases_fts WHERE pdf_filename = NEW.pdf_filename;
+  INSERT INTO seen_cases_fts(pdf_filename, title, member, category, summary,
+                             legal_issues, keywords, parties, dates)
+  SELECT sc.pdf_filename, sc.title, sc.member, sc.category, sc.summary,
+         NEW.legal_issues, NEW.keywords,
+         TRIM(COALESCE(NEW.party_applicant,'') || ' ' || COALESCE(NEW.party_respondent,'')),
+         COALESCE(NEW.decision_date,'')
+  FROM seen_cases sc WHERE sc.pdf_filename = NEW.pdf_filename AND sc.source = NEW.source;
+END;
+
+CREATE TRIGGER IF NOT EXISTS seen_cases_fts_ca_au AFTER UPDATE ON case_awards BEGIN
+  DELETE FROM seen_cases_fts WHERE pdf_filename = NEW.pdf_filename;
+  INSERT INTO seen_cases_fts(pdf_filename, title, member, category, summary,
+                             legal_issues, keywords, parties, dates)
+  SELECT sc.pdf_filename, sc.title, sc.member, sc.category, sc.summary,
+         NEW.legal_issues, NEW.keywords,
+         TRIM(COALESCE(NEW.party_applicant,'') || ' ' || COALESCE(NEW.party_respondent,'')),
+         COALESCE(NEW.decision_date,'')
+  FROM seen_cases sc WHERE sc.pdf_filename = NEW.pdf_filename AND sc.source = NEW.source;
+END;
+
+CREATE TRIGGER IF NOT EXISTS seen_cases_fts_ca_ad AFTER DELETE ON case_awards BEGIN
+  DELETE FROM seen_cases_fts WHERE pdf_filename = OLD.pdf_filename;
+  INSERT INTO seen_cases_fts(pdf_filename, title, member, category, summary,
+                             legal_issues, keywords, parties, dates)
+  SELECT sc.pdf_filename, sc.title, sc.member, sc.category, sc.summary,
+         NULL, NULL, NULL, NULL
+  FROM seen_cases sc WHERE sc.pdf_filename = OLD.pdf_filename AND sc.source = OLD.source;
+END;
+
+DELETE FROM seen_cases_fts;
+INSERT INTO seen_cases_fts(pdf_filename, title, member, category, summary,
+                           legal_issues, keywords, parties, dates)
+SELECT sc.pdf_filename, sc.title, sc.member, sc.category, sc.summary,
+       ca.legal_issues, ca.keywords,
+       TRIM(COALESCE(ca.party_applicant,'') || ' ' || COALESCE(ca.party_respondent,'')),
+       COALESCE(ca.decision_date,'')
+FROM seen_cases sc
+LEFT JOIN case_awards ca ON ca.pdf_filename = sc.pdf_filename AND ca.source = sc.source;
+`;
+  try {
+    // db.exec handles multi-statement SQL (triggers contain internal semicolons,
+    // so splitting the DDL on ';' would corrupt the statements)
+    await db.exec(ddl);
+    return { created: true };
+  } catch (err) {
+    return { created: false, error: String(err) };
+  }
 }
