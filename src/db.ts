@@ -152,7 +152,7 @@ export async function getRecentCasesPaged(
     sql += " AND (summary IS NULL OR summary NOT LIKE '[CONSENT]%')";
   }
   sql += " AND (summary IS NULL OR (summary NOT LIKE '[ENFORCEMENT]%' AND summary NOT LIKE '[LABOUR INSPECTOR]%'))";
-  sql += ' ORDER BY processed_at DESC LIMIT ? OFFSET ?';
+  sql += ' ORDER BY processed_at DESC, pdf_filename DESC LIMIT ? OFFSET ?';
   params.push(perPage, offset);
   const result = await db.prepare(sql).bind(...params).all<DbSeenCase>();
   return result.results;
@@ -554,7 +554,7 @@ export async function getVisibleCaseOrder(
   db: D1Database
 ): Promise<Array<{ pdf_filename: string }>> {
   const result = await db
-    .prepare(`SELECT pdf_filename FROM seen_cases WHERE source = 'ERA' AND (summary IS NULL OR (summary NOT LIKE '[COSTS ONLY]%' AND summary NOT LIKE '[CONSENT]%' AND summary NOT LIKE '[ENFORCEMENT]%' AND summary NOT LIKE '[LABOUR INSPECTOR]%')) ORDER BY processed_at DESC`)
+    .prepare(`SELECT pdf_filename FROM seen_cases WHERE source = 'ERA' AND (summary IS NULL OR (summary NOT LIKE '[ENFORCEMENT]%' AND summary NOT LIKE '[LABOUR INSPECTOR]%')) ORDER BY processed_at DESC, pdf_filename DESC`)
     .all<{ pdf_filename: string }>();
   return result.results;
 }
